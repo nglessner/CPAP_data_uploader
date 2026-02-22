@@ -743,6 +743,25 @@ In scheduled mode the uploader **only runs during the configured window** (e.g. 
 ### Getting More Information
 
 **View Serial Monitor Output**
+
+Use the included monitor scripts for easy serial monitoring:
+
+**Windows:**
+```cmd
+monitor.bat
+```
+
+**Linux/Mac:**
+```bash
+./monitor.sh
+```
+
+These scripts automatically:
+- Activate the Python virtual environment
+- Check for PlatformIO installation
+- Start the serial monitor on the correct port
+
+**Manual monitoring (alternative):**
 ```bash
 # Windows (using PlatformIO)
 pio device monitor
@@ -842,18 +861,29 @@ python -m esptool --chip esp32 --port /dev/ttyUSB0 --baud 460800 write_flash 0x0
 
 ## Package Contents
 
+**Firmware Binaries:**
 - `firmware-ota.bin` - Complete OTA firmware for initial flashing (1.3MB)
 - `firmware-ota-upgrade.bin` - App-only binary for web OTA updates (1.2MB)
 - `firmware-standard.bin` - Complete standard firmware, can be re-flashed (1.2MB)
+
+**Upload Scripts:**
 - `upload-ota.bat` - Windows OTA firmware upload script
 - `upload-standard.bat` - Windows standard firmware upload script
 - `upload.sh` - macOS/Linux upload script (supports both firmware types)
-- `requirements.txt` - Python dependencies (esptool)
+
+**Monitor Scripts:**
+- `monitor.bat` - Windows serial monitor script
+- `monitor.sh` - macOS/Linux serial monitor script
+
+**Configuration Examples:**
 - `config.txt.example.simple` - Minimal configuration (bare essentials)
 - `config.txt.example.smb` - SMB/network share configuration
 - `config.txt.example.sleephq` - SleepHQ cloud configuration
 - `config.txt.example.both` - Dual upload (SMB + SleepHQ)
+
+**Documentation:**
 - `README.md` - This file
+- `requirements.txt` - Python dependencies (esptool)
 
 ---
 

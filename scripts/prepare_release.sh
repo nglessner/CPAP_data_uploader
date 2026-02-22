@@ -125,12 +125,18 @@ cp "$RELEASE_DIR/upload-standard.bat" "$TEMP_DIR/"
 cp "$RELEASE_DIR/README.md" "$TEMP_DIR/"
 cp "$RELEASE_DIR/requirements.txt" "$TEMP_DIR/"
 
+# Copy monitor scripts
+echo "Copying monitor scripts..."
+cp "monitor.sh" "$TEMP_DIR/"
+cp "monitor.bat" "$TEMP_DIR/"
+
 # Copy config examples
 echo "Copying config.txt example variants..."
 cp docs/config.txt.example* "$TEMP_DIR/"
 
 # Make scripts executable
 chmod +x "$TEMP_DIR/upload.sh"
+chmod +x "$TEMP_DIR/monitor.sh"
 
 # Create zip package
 echo "Creating release package..."
@@ -153,6 +159,8 @@ echo "  - firmware-standard.bin (complete standard firmware, can be re-flashed)"
 echo "  - upload.sh (macOS/Linux upload script)"
 echo "  - upload-ota.bat (Windows OTA firmware upload script)"
 echo "  - upload-standard.bat (Windows standard firmware upload script)"
+echo "  - monitor.sh (macOS/Linux serial monitor script)"
+echo "  - monitor.bat (Windows serial monitor script)"
 echo "  - README.md (usage instructions)"
 echo "  - requirements.txt (Python dependencies)"
 echo "  - config.txt.example* (configuration templates: SMB, SleepHQ, combined)"

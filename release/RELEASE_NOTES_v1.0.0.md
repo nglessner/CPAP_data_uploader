@@ -1,39 +1,10 @@
-# Release Notes v1.0.0
-
 ## 🎉 First Stable Release
 
-This is the first stable release of the CPAP Data Uploader firmware. The v1.0 milestone represents a mature, production-ready system with comprehensive documentation, automated migration tools, and a fully validated configuration system.
+This is the first stable release of the CPAP Data Uploader firmware. The v1.0 milestone represents a mature, production-ready system with comprehensive documentation, and a fully validated configuration system.
 
 ---
 
 ## 📋 What's New in v1.0.0
-
-### 📝 Configuration Documentation
-
-**Comprehensive configuration reference and examples** for the TXT format introduced in v0.8.0.
-
-- **Complete parameter reference:** `docs/CONFIG_REFERENCE.md`
-- **Multiple example templates:** Simple, SMB, SleepHQ, and dual-upload configurations
-- **Clear migration instructions:** Step-by-step guide for users upgrading from v0.7.x
-- **Deprecated key documentation:** All legacy parameters clearly identified
-
-### 📚 Documentation Improvements
-
-- **Fixed:** Removed all references to the deprecated JSON configuration format
-- **Updated:** `docs/03-REQUIREMENTS.md` now shows correct TXT format examples
-- **Enhanced:** Release notes and README files now reference the migration tool
-- **Cleaned:** Removed outdated JSON examples from technical documentation
-
-### 🔧 Configuration System Validation
-
-- All configuration examples verified and tested
-- Consistent KEY = VALUE format across all documentation
-- Deprecated keys properly documented and handled
-- Migration path clearly defined for all users
-
----
-
-## 🚀 Key Features (Stable)
 
 ### Smart Upload System
 - **Smart Mode:** Automatic uploads when CPAP is idle (24/7 monitoring)
@@ -45,15 +16,12 @@ This is the first stable release of the CPAP Data Uploader firmware. The v1.0 mi
 - **SMB/Network Shares:** Upload to Windows shares, NAS, or Samba servers
 - **SleepHQ Cloud:** Direct cloud integration with OAuth2 authentication
 - **Simultaneous Upload:** Send data to both destinations at once
-- **WebDAV Support:** Additional upload backend option
 
 ### Security & Reliability
-- **Encrypted Credential Storage:** Passwords stored in ESP32 NVS flash
-- **Automatic Credential Migration:** Plain text passwords moved to secure storage on first boot
 - **State Persistence:** Upload progress tracked across reboots
 - **Retry Logic:** Automatic retry with exponential backoff
 
-### Web Interface
+### New improved web interface
 - **Live Dashboard:** Real-time upload status and progress
 - **Configuration Editor:** Edit config.txt directly from browser
 - **Log Viewer:** Browse and search device logs
@@ -84,11 +52,6 @@ This is the first stable release of the CPAP Data Uploader firmware. The v1.0 mi
 - `upload_firmware.py` - Firmware upload script (cross-platform)
 - `upload_firmware.bat` - Windows firmware upload script
 - `upload_firmware.sh` - Linux/Mac firmware upload script
-
-### Documentation
-- `README.md` - Complete setup and user guide
-- `CONFIG_REFERENCE.md` - Full configuration parameter reference
-- `RELEASE_NOTES_v1.0.0.md` - This file
 
 ---
 
@@ -122,7 +85,7 @@ Some keys have been renamed for consistency:
 ### Deprecated Keys
 
 The following keys are no longer supported:
-- `BOOT_DELAY_SECONDS` - Removed in v0.9.2 (hardcoded to 15 seconds)
+- `BOOT_DELAY_SECONDS` - Hardcoded to 15 seconds
 - `SCHEDULE` - Replaced by `UPLOAD_MODE`, `UPLOAD_START_HOUR`, `UPLOAD_END_HOUR`
 - Legacy timing parameters: `UPLOAD_HOUR`, `SESSION_DURATION_SECONDS`, `SD_RELEASE_INTERVAL_SECONDS`, `SD_RELEASE_WAIT_MS`, `UPLOAD_INTERVAL_MINUTES`
 
@@ -130,16 +93,9 @@ The following keys are no longer supported:
 
 ## 🐛 Bug Fixes
 
-### Configuration System
-- Fixed JSON format example in technical requirements document
-- Removed all references to deprecated `config.json` format
-- Corrected endpoint format in examples (SMB paths now use `//server/share` format)
-
-### Documentation
-- Fixed inconsistencies between different config examples
-- Updated all code comments to reflect TXT format
-- Removed outdated JSON parsing references
-
+### SD card error
+- Fixed SD card error which was caused by CPAP machine attempting to access the SD card at the same time as the firmware.
+-  
 ---
 
 ## 📖 Configuration Reference
@@ -215,7 +171,7 @@ This ensures the device only accesses the SD card during hours when you're not u
 ### mDNS Not Working on Some Networks
 The `http://cpap.local` hostname may not work on all networks (particularly corporate or guest networks).
 
-**Solution:** Use the device's IP address instead. Find it in your router's DHCP client list or check the serial console output during boot.
+**Solution:** Use the device's IP address instead. Find it in your router's DHCP client list or check the serial console output during boot. this requires to use the uploader card and connect to the serial port using the monitor.sh (linux and mac) or monitor.bat (windows) scripts. examples of use in the release readme file and the release folder.
 
 ---
 
@@ -242,7 +198,7 @@ See the LICENSE file for full license text.
 
 ## 🔗 Resources
 
-- **Project Repository:** [GitHub](https://github.com/yourusername/cpap-data-uploader)
+- **Project Repository:** [GitHub](https://github.com/amanuense/cpap-data-uploader)
 - **Hardware:** [SD WIFI PRO](https://www.fysetc.com/products/fysetc-upgrade-sd-wifi-pro)
 - **SleepHQ:** [https://sleephq.com](https://sleephq.com)
 - **Support:** Open an issue on GitHub
@@ -252,11 +208,6 @@ See the LICENSE file for full license text.
 ## 🎯 What's Next?
 
 v1.0 represents a stable foundation. Future development will focus on:
-
-- Additional upload backends (FTP, SFTP, etc.)
-- Enhanced web interface features
-- Mobile app integration
-- Advanced scheduling options
 - Improved CPAP machine compatibility
 
 Stay tuned for updates!
