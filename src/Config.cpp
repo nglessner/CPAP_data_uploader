@@ -1,24 +1,38 @@
 #include "Config.h"
 #include "Logger.h"
-#include <ArduinoJson.h>
 
 // Define static constants for Preferences
 const char* Config::PREFS_NAMESPACE = "cpap_creds";
 const char* Config::PREFS_KEY_WIFI_PASS = "wifi_pass";
 const char* Config::PREFS_KEY_ENDPOINT_PASS = "endpoint_pass";
+const char* Config::PREFS_KEY_CLOUD_SECRET = "cloud_secret";
 const char* Config::CENSORED_VALUE = "***STORED_IN_FLASH***";
-const size_t Config::JSON_FILE_MAX_SIZE;
 
 Config::Config() : 
-    uploadHour(12),  // Default: noon
-    sessionDurationSeconds(30),  // Default: 30 seconds
-    maxRetryAttempts(3),  // Default: 3 attempts
     gmtOffsetHours(0),  // Default: UTC
-    bootDelaySeconds(30),  // Default: 30 seconds
-    sdReleaseIntervalSeconds(2),  // Default: 2 seconds
-    sdReleaseWaitMs(500),  // Default: 500ms
     logToSdCard(false),  // Default: do not log to SD card (debugging only)
+    debugMode(false),    // Default: suppress verbose pre-flight and heap stats
     isValid(false),
+    
+    // Cloud upload defaults
+    cloudBaseUrl("https://sleephq.com"),
+    cloudDeviceId(0),
+    maxDays(365),  // Default: upload only last 365 days
+    recentFolderDays(2),  // Default: re-check today + yesterday
+    cloudInsecureTls(false),  // Default: use root CA validation
+    
+    // Upload FSM defaults
+    uploadMode("smart"),
+    uploadStartHour(9),
+    uploadEndHour(21),
+    inactivitySeconds(62),
+    exclusiveAccessMinutes(5),
+    cooldownMinutes(10),
+    
+    _hasSmbEndpoint(false),
+    _hasCloudEndpoint(false),
+    _hasWebdavEndpoint(false),
+    
     storePlainText(false),  // Default: secure mode
     credentialsInFlash(false),  // Will be set during loadFromSD
     
@@ -97,59 +111,198 @@ bool Config::isCensored(const String& value) {
     return value.equals(CENSORED_VALUE);
 }
 
+// Helper to trim whitespace from a String
+static String trim(String s) {
+    s.trim();
+    return s;
+}
+
+// Helper to remove comments from a line
+// NOTE: Only call this on complete lines BEFORE the key=value split.
+// It is intentionally NOT called on values — passwords/SSIDs can contain '#'.
+String Config::trimComment(String line) {
+    // Handle hash style comments
+    int commentPos = line.indexOf('#');
+    if (commentPos != -1) {
+        return line.substring(0, commentPos);
+    }
+    
+    return line;
+}
+
+// Helper to parse a line and set config values
+void Config::parseLine(String& line) {
+    line = trim(line); // Trim leading/trailing whitespace
+
+    if (line.isEmpty()) {
+        return; // Skip empty lines
+    }
+
+    // Skip pure comment lines (start with '#').
+    // Do NOT strip '#' from values — WiFi passwords and SSIDs can contain '#'.
+    if (line.charAt(0) == '#') {
+        return;
+    }
+
+    int equalsPos = line.indexOf('=');
+    if (equalsPos == -1) {
+        // Only warn if line is not empty and doesn't look like a section header [SECTION]
+        if (line.length() > 0 && line.charAt(0) != '[') {
+            LOGF("WARN: Config line '%s' has no '='. Skipping.", line.c_str());
+        }
+        return;
+    }
+
+    String key = trim(line.substring(0, equalsPos));
+    String value = trim(line.substring(equalsPos + 1));
+    
+    // Remove optional quotes around value
+    if (value.length() >= 2) {
+        if ((value.charAt(0) == '"' && value.charAt(value.length()-1) == '"') ||
+            (value.charAt(0) == '\'' && value.charAt(value.length()-1) == '\'')) {
+            value = value.substring(1, value.length()-1);
+        }
+    }
+
+    setConfigValue(key, value);
+}
+
+// Helper to set config values based on key (case-insensitive)
+void Config::setConfigValue(String key, String value) {
+    key.toUpperCase(); // Convert key to uppercase for case-insensitive comparison
+
+    if (key == "WIFI_SSID") {
+        wifiSSID = value;
+    } else if (key == "WIFI_PASSWORD") {
+        wifiPassword = value;
+    } else if (key == "HOSTNAME") {
+        hostname = value;
+    } else if (key == "SCHEDULE") {
+        schedule = value;
+    } else if (key == "ENDPOINT") {
+        endpoint = value;
+    } else if (key == "ENDPOINT_TYPE") {
+        endpointType = value;
+    } else if (key == "ENDPOINT_USER") {
+        endpointUser = value;
+    } else if (key == "ENDPOINT_PASSWORD") {
+        endpointPassword = value;
+    } else if (key == "GMT_OFFSET_HOURS") {
+        gmtOffsetHours = value.toInt();
+    } else if (key == "LOG_TO_SD_CARD") {
+        logToSdCard = (value.equalsIgnoreCase("true") || value.toInt() == 1);
+    } else if (key == "DEBUG") {
+        debugMode = (value.equalsIgnoreCase("true") || value.toInt() == 1);
+    } else if (key == "CLOUD_CLIENT_ID") {
+        cloudClientId = value;
+    } else if (key == "CLOUD_CLIENT_SECRET") {
+        cloudClientSecret = value;
+    } else if (key == "CLOUD_TEAM_ID") {
+        cloudTeamId = value;
+    } else if (key == "CLOUD_BASE_URL") {
+        cloudBaseUrl = value;
+    } else if (key == "CLOUD_DEVICE_ID") {
+        cloudDeviceId = value.toInt();
+    } else if (key == "MAX_DAYS") {
+        maxDays = value.toInt();
+    } else if (key == "RECENT_FOLDER_DAYS") {
+        recentFolderDays = value.toInt();
+    } else if (key == "CLOUD_INSECURE_TLS") {
+        cloudInsecureTls = (value.equalsIgnoreCase("true") || value.toInt() == 1);
+    } else if (key == "UPLOAD_MODE") {
+        uploadMode = value;
+    } else if (key == "UPLOAD_START_HOUR") {
+        uploadStartHour = value.toInt();
+    } else if (key == "UPLOAD_END_HOUR") {
+        uploadEndHour = value.toInt();
+    } else if (key == "INACTIVITY_SECONDS") {
+        inactivitySeconds = value.toInt();
+    } else if (key == "EXCLUSIVE_ACCESS_MINUTES") {
+        exclusiveAccessMinutes = value.toInt();
+    } else if (key == "COOLDOWN_MINUTES") {
+        cooldownMinutes = value.toInt();
+    } else if (key == "CPU_SPEED_MHZ") {
+        cpuSpeedMhz = value.toInt();
+    } else if (key == "WIFI_TX_PWR") {
+        wifiTxPower = parseWifiTxPower(value);
+    } else if (key == "WIFI_PWR_SAVING") {
+        wifiPowerSaving = parseWifiPowerSaving(value);
+    } else if (key == "STORE_CREDENTIALS_PLAIN_TEXT") {
+        storePlainText = (value.equalsIgnoreCase("true") || value.toInt() == 1);
+    } else {
+        LOGF("WARN: Unknown config key '%s'. Skipping.", key.c_str());
+    }
+}
+
 bool Config::censorConfigFile(fs::FS &sd) {
     LOG_DEBUG("Starting config file censoring operation");
     
-    // Read existing config.json
-    File configFile = sd.open("/config.json", FILE_READ);
+    // Use a temporary file to write the censored version
+    String tempPath = "/config.tmp";
+    String configPath = "/config.txt";
+    
+    File configFile = sd.open(configPath, FILE_READ);
     if (!configFile) {
-        LOG_ERROR("Cannot open config.json for reading during censoring");
+        LOG_ERROR("Cannot open config.txt for reading during censoring");
         return false;
     }
     
-    // Parse JSON document
-    StaticJsonDocument<Config::JSON_FILE_MAX_SIZE> doc;
-    DeserializationError error = deserializeJson(doc, configFile);
+    File tempFile = sd.open(tempPath, FILE_WRITE);
+    if (!tempFile) {
+        LOG_ERROR("Cannot open temp file for writing during censoring");
+        configFile.close();
+        return false;
+    }
+    
+    bool errorOccurred = false;
+    
+    while (configFile.available()) {
+        String line = configFile.readStringUntil('\n');
+        // readStringUntil strips the delimiter, but we need to handle CR if present
+        line.trim(); 
+        
+        String trimmedLine = trimComment(line);
+        trimmedLine.trim();
+        
+        // Check if this line contains a secret key
+        bool isSecret = false;
+        int equalsPos = trimmedLine.indexOf('=');
+        
+        if (equalsPos != -1 && trimmedLine.length() > 0 && trimmedLine.charAt(0) != '#' && trimmedLine.substring(0, 2) != "//") {
+            String key = trimmedLine.substring(0, equalsPos);
+            key.trim();
+            key.toUpperCase();
+            
+            if (key == "WIFI_PASSWORD" || key == "ENDPOINT_PASSWORD" || key == "CLOUD_CLIENT_SECRET") {
+                // It's a secret, reconstruct the line with censored value
+                String originalKey = line.substring(0, line.indexOf('=')); // Keep original casing/spacing
+                tempFile.println(originalKey + " = " + String(CENSORED_VALUE));
+                isSecret = true;
+            }
+        }
+        
+        if (!isSecret) {
+            // Write original line
+            tempFile.println(line);
+        }
+    }
+    
     configFile.close();
+    tempFile.close();
     
-    if (error) {
-        LOGF("ERROR: Failed to parse config.json for censoring: %s", error.c_str());
+    if (errorOccurred) {
+        sd.remove(tempPath);
         return false;
     }
     
-    return censorConfigFileWithDoc(sd, doc);
-}
-
-template<typename T>
-bool Config::censorConfigFileWithDoc(fs::FS &sd, T& doc) {
-    // Update credential fields with censored values
-    doc["WIFI_PASS"] = CENSORED_VALUE;
-    doc["ENDPOINT_PASS"] = CENSORED_VALUE;
-    
-    LOG_DEBUG("Credential fields updated with censored values");
-    
-    // Write updated JSON back to SD card
-    File configFile = sd.open("/config.json", FILE_WRITE);
-    if (!configFile) {
-        LOG_ERROR("Cannot open config.json for writing during censoring");
+    // Replace original file with temp file
+    sd.remove(configPath);
+    if (!sd.rename(tempPath, configPath)) {
+        LOG_ERROR("Failed to replace config.txt with censored version");
         return false;
     }
     
-    // Serialize JSON to file (pretty printed)
-    // Use serializeJsonPretty if available (ArduinoJson 6.19+), otherwise use serializeJson
-    #if ARDUINOJSON_VERSION_MAJOR >= 6 && ARDUINOJSON_VERSION_MINOR >= 19
-        size_t bytesWritten = serializeJsonPretty(doc, configFile);
-    #else
-        size_t bytesWritten = serializeJson(doc, configFile);
-    #endif
-    configFile.close();
-    
-    if (bytesWritten == 0) {
-        LOG_ERROR("Failed to write censored config to file");
-        return false;
-    }
-    
-    LOG_DEBUGF("Config file censored successfully (%d bytes written)", bytesWritten);
+    LOG_DEBUG("Config file censored successfully");
     LOG_DEBUG("Credentials are now stored securely in flash memory");
     
     return true;
@@ -161,240 +314,147 @@ bool Config::migrateToSecureStorage(fs::FS &sd) {
     LOG("========================================");
     
     // Step 1: Validate that credentials are not empty
-    if (wifiPassword.isEmpty() && endpointPassword.isEmpty()) {
-        LOG_WARN("Both credentials are empty, skipping migration");
+    if (wifiPassword.isEmpty() && endpointPassword.isEmpty() && cloudClientSecret.isEmpty()) {
+        LOG_WARN("All credentials are empty, skipping migration");
         return false;
     }
     
-    if (wifiPassword.isEmpty()) {
-        LOG_WARN("WiFi password is empty, will not migrate WIFI_PASS");
-    }
+    // Step 2: Store credentials in Preferences
+    bool success = true;
     
-    if (endpointPassword.isEmpty()) {
-        LOG_WARN("Endpoint password is empty, will not migrate ENDPOINT_PASS");
-    }
-    
-    // Step 2: Store WIFI_PASS in Preferences
-    bool wifiStored = false;
-    if (!wifiPassword.isEmpty()) {
+    if (!wifiPassword.isEmpty() && !isCensored(wifiPassword)) {
         LOG_DEBUG("Storing WiFi password in Preferences...");
-        wifiStored = storeCredential(PREFS_KEY_WIFI_PASS, wifiPassword);
-        
-        if (!wifiStored) {
-            LOG_ERROR("Failed to store WiFi password in Preferences");
-            LOG("Migration aborted - keeping plain text credentials");
-            return false;
-        }
-    } else {
-        wifiStored = true;  // Skip if empty
+        if (!storeCredential(PREFS_KEY_WIFI_PASS, wifiPassword)) success = false;
     }
     
-    // Step 3: Store ENDPOINT_PASS in Preferences
-    bool endpointStored = false;
-    if (!endpointPassword.isEmpty()) {
+    if (!endpointPassword.isEmpty() && !isCensored(endpointPassword)) {
         LOG_DEBUG("Storing endpoint password in Preferences...");
-        endpointStored = storeCredential(PREFS_KEY_ENDPOINT_PASS, endpointPassword);
-        
-        if (!endpointStored) {
-            LOG_ERROR("Failed to store endpoint password in Preferences");
-            LOG("Migration aborted - keeping plain text credentials");
-            return false;
-        }
-    } else {
-        endpointStored = true;  // Skip if empty
+        if (!storeCredential(PREFS_KEY_ENDPOINT_PASS, endpointPassword)) success = false;
     }
     
-    // Step 4: Verify credentials were stored correctly by reading back
-    LOG_DEBUG("Verifying stored credentials...");
-    bool verificationPassed = true;
-    
-    if (!wifiPassword.isEmpty()) {
-        String verifyWifi = loadCredential(PREFS_KEY_WIFI_PASS, "");
-        if (verifyWifi != wifiPassword) {
-            LOG_ERROR("WiFi password verification failed - stored value does not match");
-            verificationPassed = false;
-        } else {
-            LOG_DEBUG("WiFi password verification: PASSED");
-        }
+    if (!cloudClientSecret.isEmpty() && !isCensored(cloudClientSecret)) {
+        LOG_DEBUG("Storing cloud client secret in Preferences...");
+        if (!storeCredential(PREFS_KEY_CLOUD_SECRET, cloudClientSecret)) success = false;
     }
     
-    if (!endpointPassword.isEmpty()) {
-        String verifyEndpoint = loadCredential(PREFS_KEY_ENDPOINT_PASS, "");
-        if (verifyEndpoint != endpointPassword) {
-            LOG_ERROR("Endpoint password verification failed - stored value does not match");
-            verificationPassed = false;
-        } else {
-            LOG_DEBUG("Endpoint password verification: PASSED");
-        }
-    }
-    
-    if (!verificationPassed) {
-        LOG_ERROR("Credential verification failed");
+    if (!success) {
+        LOG_ERROR("Failed to store some credentials");
         LOG("Migration aborted - keeping plain text credentials");
         return false;
     }
     
-    LOG_DEBUG("All credentials verified successfully");
+    // Step 3: Verify credentials
+    LOG_DEBUG("Verifying stored credentials...");
+    if (!wifiPassword.isEmpty() && !isCensored(wifiPassword)) {
+        if (loadCredential(PREFS_KEY_WIFI_PASS, "") != wifiPassword) success = false;
+    }
+    if (!endpointPassword.isEmpty() && !isCensored(endpointPassword)) {
+        if (loadCredential(PREFS_KEY_ENDPOINT_PASS, "") != endpointPassword) success = false;
+    }
+    if (!cloudClientSecret.isEmpty() && !isCensored(cloudClientSecret)) {
+        if (loadCredential(PREFS_KEY_CLOUD_SECRET, "") != cloudClientSecret) success = false;
+    }
     
-    // Step 5: Censor config.json after successful Preferences storage
-    LOG_DEBUG("Censoring config.json file...");
+    if (!success) {
+        LOG_ERROR("Credential verification failed");
+        return false;
+    }
+    
+    // Step 4: Censor config.txt
     if (!censorConfigFile(sd)) {
-        LOG_ERROR("Failed to censor config.json");
-        LOG_WARN("Credentials are stored in Preferences but config.json still contains plain text");
-        LOG("Manual intervention may be required");
+        LOG_ERROR("Failed to censor config.txt");
         return false;
     }
     
-    // Step 6: Log success
     LOG("========================================");
     LOG("Credential migration completed successfully");
     LOG("Credentials are now stored securely in flash memory");
-    LOG("config.json has been updated with censored values");
+    LOG("config.txt has been updated with censored values");
     LOG("========================================");
     
     return true;
 }
 
-template<typename T>
-bool Config::migrateToSecureStorageWithDoc(fs::FS &sd, T& doc) {
-    LOG("========================================");
-    LOG("Starting credential migration to secure storage");
-    LOG("========================================");
-    
-    // Step 1: Validate that credentials are not empty
-    if (wifiPassword.isEmpty() && endpointPassword.isEmpty()) {
-        LOG_WARN("Both credentials are empty, skipping migration");
-        return false;
-    }
-    
-    if (wifiPassword.isEmpty()) {
-        LOG_WARN("WiFi password is empty, will not migrate WIFI_PASS");
-    }
-    
-    if (endpointPassword.isEmpty()) {
-        LOG_WARN("Endpoint password is empty, will not migrate ENDPOINT_PASS");
-    }
-    
-    // Step 2: Store WIFI_PASS in Preferences
-    bool wifiStored = false;
-    if (!wifiPassword.isEmpty()) {
-        LOG_DEBUG("Storing WiFi password in Preferences...");
-        wifiStored = storeCredential(PREFS_KEY_WIFI_PASS, wifiPassword);
-        
-        if (!wifiStored) {
-            LOG_ERROR("Failed to store WiFi password in Preferences");
-            LOG("Migration aborted - keeping plain text credentials");
-            return false;
-        }
-    } else {
-        wifiStored = true;  // Skip if empty
-    }
-    
-    // Step 3: Store ENDPOINT_PASS in Preferences
-    bool endpointStored = false;
-    if (!endpointPassword.isEmpty()) {
-        LOG_DEBUG("Storing endpoint password in Preferences...");
-        endpointStored = storeCredential(PREFS_KEY_ENDPOINT_PASS, endpointPassword);
-        
-        if (!endpointStored) {
-            LOG_ERROR("Failed to store endpoint password in Preferences");
-            LOG("Migration aborted - keeping plain text credentials");
-            return false;
-        }
-    } else {
-        endpointStored = true;  // Skip if empty
-    }
-    
-    // Step 4: Verify credentials were stored correctly by reading back
-    LOG_DEBUG("Verifying stored credentials...");
-    bool verificationPassed = true;
-    
-    if (!wifiPassword.isEmpty()) {
-        String verifyWifi = loadCredential(PREFS_KEY_WIFI_PASS, "");
-        if (verifyWifi != wifiPassword) {
-            LOG_ERROR("WiFi password verification failed - stored value does not match");
-            verificationPassed = false;
-        } else {
-            LOG_DEBUG("WiFi password verification: PASSED");
-        }
-    }
-    
-    if (!endpointPassword.isEmpty()) {
-        String verifyEndpoint = loadCredential(PREFS_KEY_ENDPOINT_PASS, "");
-        if (verifyEndpoint != endpointPassword) {
-            LOG_ERROR("Endpoint password verification failed - stored value does not match");
-            verificationPassed = false;
-        } else {
-            LOG_DEBUG("Endpoint password verification: PASSED");
-        }
-    }
-    
-    if (!verificationPassed) {
-        LOG_ERROR("Credential verification failed");
-        LOG("Migration aborted - keeping plain text credentials");
-        return false;
-    }
-    
-    LOG_DEBUG("All credentials verified successfully");
-    
-    // Step 5: Censor config.json after successful Preferences storage
-    // Reuse the existing JSON document to avoid double allocation
-    LOG_DEBUG("Censoring config.json file...");
-    if (!censorConfigFileWithDoc(sd, doc)) {
-        LOG_ERROR("Failed to censor config.json");
-        LOG_WARN("Credentials are stored in Preferences but config.json still contains plain text");
-        LOG("Manual intervention may be required");
-        return false;
-    }
-    
-    // Step 6: Log success
-    LOG("========================================");
-    LOG("Credential migration completed successfully");
-    LOG("Credentials are now stored securely in flash memory");
-    LOG("config.json has been updated with censored values");
-    LOG("========================================");
-    
-    return true;
-}
-
+// Main function to load configuration from SD card
 bool Config::loadFromSD(fs::FS &sd) {
     LOG("========================================");
     LOG("Loading configuration from SD card");
     LOG("========================================");
     
-    // Step 1: Read and parse config.json
-    File configFile = sd.open("/config.json");
+    // Step 1: Read and parse config.txt
+    File configFile = sd.open("/config.txt", FILE_READ);
     if (!configFile) {
-        LOG_ERROR("Failed to open config file");
+        LOG_ERROR("Failed to open config.txt");
         return false;
     }
 
-    StaticJsonDocument<Config::JSON_FILE_MAX_SIZE> doc;
-    DeserializationError error = deserializeJson(doc, configFile);
+    // Reset members to defaults before loading
+    // (Constructor already set defaults, but good practice if called multiple times)
+    
+    while (configFile.available()) {
+        String line = configFile.readStringUntil('\n');
+        parseLine(line);
+    }
     configFile.close();
-
-    if (error) {
-        LOGF("ERROR: Failed to parse config: %s", error.c_str());
-        return false;
-    }
 
     LOG("Config file parsed successfully");
     
-    // Step 2: Parse STORE_CREDENTIALS_PLAIN_TEXT flag (defaults to false for secure mode)
-    storePlainText = doc["STORE_CREDENTIALS_PLAIN_TEXT"] | false;
+    // Step 2: Handle secure storage logic
     
     if (storePlainText) {
         LOG_DEBUG("========================================");
-        LOG_DEBUG("PLAIN TEXT MODE: Credentials will be stored in config.json");
+        LOG_DEBUG("PLAIN TEXT MODE: Credentials will be stored in config.txt");
         LOG_DEBUG("========================================");
+        credentialsInFlash = false;
     } else {
         LOG_DEBUG("========================================");
         LOG_DEBUG("SECURE MODE: Credentials will be stored in flash memory");
         LOG_DEBUG("========================================");
+        
+        // Initialize Preferences
+        if (!initPreferences()) {
+            LOG_ERROR("Failed to initialize Preferences");
+            LOG("Falling back to plain text mode for this session");
+            storePlainText = true;
+            credentialsInFlash = false;
+        } else {
+            // Check loaded credentials for censorship
+            bool wifiCensored = isCensored(wifiPassword);
+            bool endpointCensored = isCensored(endpointPassword);
+            bool cloudSecretCensored = isCensored(cloudClientSecret);
+            
+            // If censored, load from preferences
+            if (wifiCensored) {
+                wifiPassword = loadCredential(PREFS_KEY_WIFI_PASS, "");
+                LOG("Loaded WiFi password from flash");
+            }
+            if (endpointCensored) {
+                endpointPassword = loadCredential(PREFS_KEY_ENDPOINT_PASS, "");
+                LOG("Loaded endpoint password from flash");
+            }
+            if (cloudSecretCensored) {
+                cloudClientSecret = loadCredential(PREFS_KEY_CLOUD_SECRET, "");
+                LOG("Loaded cloud client secret from flash");
+            }
+            
+            credentialsInFlash = (wifiCensored || endpointCensored || cloudSecretCensored);
+            
+            // Check for migration needed (plaintext credentials present in secure mode)
+            bool needsMigration = false;
+            if (!wifiPassword.isEmpty() && !wifiCensored) needsMigration = true;
+            if (!endpointPassword.isEmpty() && !endpointCensored) needsMigration = true;
+            if (!cloudClientSecret.isEmpty() && !cloudSecretCensored) needsMigration = true;
+            
+            if (needsMigration) {
+                LOG("New plain text credentials detected in secure mode - attempting migration");
+                if (migrateToSecureStorage(sd)) {
+                    credentialsInFlash = true;
+                }
+            }
+        }
     }
     
-    // Step 3: Load non-credential configuration fields
-    wifiSSID = doc["WIFI_SSID"] | "";
+    // Step 3: Validate configuration
     
     // Validate SSID length (WiFi standard limit is 32 characters)
     if (wifiSSID.length() > 32) {
@@ -404,133 +464,94 @@ bool Config::loadFromSD(fs::FS &sd) {
         wifiSSID = wifiSSID.substring(0, 32);
     }
     
-    schedule = doc["SCHEDULE"] | "";
-    endpoint = doc["ENDPOINT"] | "";
-    endpointType = doc["ENDPOINT_TYPE"] | "";
-    endpointUser = doc["ENDPOINT_USER"] | "";
-    
-    // Parse new configuration fields with defaults
-    uploadHour = doc["UPLOAD_HOUR"] | 12;
-    sessionDurationSeconds = doc["SESSION_DURATION_SECONDS"] | 30;
-    maxRetryAttempts = doc["MAX_RETRY_ATTEMPTS"] | 3;
-    gmtOffsetHours = doc["GMT_OFFSET_HOURS"] | 0;
-    bootDelaySeconds = doc["BOOT_DELAY_SECONDS"] | 30;
-    sdReleaseIntervalSeconds = doc["SD_RELEASE_INTERVAL_SECONDS"] | 2;
-    sdReleaseWaitMs = doc["SD_RELEASE_WAIT_MS"] | 500;
-    logToSdCard = doc["LOG_TO_SD_CARD"] | false;
-    
-    // Power management settings with validation
-    cpuSpeedMhz = doc["CPU_SPEED_MHZ"] | 240;
-    if (cpuSpeedMhz < 80) {
-        LOG_WARN("CPU_SPEED_MHZ below minimum (80MHz), setting to 80MHz");
-        cpuSpeedMhz = 80;
-    } else if (cpuSpeedMhz > 240) {
-        LOG_WARN("CPU_SPEED_MHZ above maximum (240MHz), setting to 240MHz");
-        cpuSpeedMhz = 240;
+    // Compute cached endpoint type flags from the (possibly comma-separated) endpointType string
+    {
+        String upper = endpointType;
+        upper.toUpperCase();
+        _hasSmbEndpoint = (upper.indexOf("SMB") >= 0);
+        _hasCloudEndpoint = (upper.indexOf("CLOUD") >= 0 || upper.indexOf("SLEEPHQ") >= 0);
+        _hasWebdavEndpoint = (upper.indexOf("WEBDAV") >= 0);
     }
     
-    String wifiTxPowerStr = doc["WIFI_TX_PWR"] | "high";
-    wifiTxPower = parseWifiTxPower(wifiTxPowerStr);
-    
-    String wifiPowerSavingStr = doc["WIFI_PWR_SAVING"] | "none";
-    wifiPowerSaving = parseWifiPowerSaving(wifiPowerSavingStr);
-    
-    // Step 4: Load credentials based on storage mode
-    if (storePlainText) {
-        // Plain text mode: Load credentials directly from config.json
-        LOG_DEBUG("Loading credentials from config.json (plain text mode)");
-        wifiPassword = doc["WIFI_PASS"] | "";
-        endpointPassword = doc["ENDPOINT_PASS"] | "";
-        credentialsInFlash = false;
-        
-        LOG_DEBUG("Credentials loaded from config.json");
-        LOG_WARN("Credentials are stored in plain text");
-    } else {
-        // Secure mode: Check if credentials are censored and handle accordingly
-        LOG_DEBUG("Checking credential storage status...");
-        
-        // Initialize Preferences for secure storage
-        if (!initPreferences()) {
-            LOG_ERROR("Failed to initialize Preferences");
-            LOG("Falling back to plain text mode for this session");
-            wifiPassword = doc["WIFI_PASS"] | "";
-            endpointPassword = doc["ENDPOINT_PASS"] | "";
-            credentialsInFlash = false;
-            storePlainText = true;  // Force plain text mode due to Preferences failure
+    bool hasValidEndpoint = false;
+    if (hasSmbEndpoint()) {
+        bool smbValid = !endpoint.isEmpty();
+        if (!smbValid) {
+            LOG_WARN("SMB endpoint configured but ENDPOINT is empty - SMB backend will be disabled for this run");
+            _hasSmbEndpoint = false;
         } else {
-            // Read credential values from config.json
-            String configWifiPass = doc["WIFI_PASS"] | "";
-            String configEndpointPass = doc["ENDPOINT_PASS"] | "";
-            
-            // Check if credentials are censored
-            bool wifiCensored = isCensored(configWifiPass);
-            bool endpointCensored = isCensored(configEndpointPass);
-            
-            // PRIORITY: Always use config file credentials if they are not censored
-            // Handle each credential individually - users can update one or both
-            
-            LOG_DEBUG("Processing credentials individually...");
-            LOGF("WiFi password censored: %s", wifiCensored ? "YES" : "NO");
-            LOGF("Endpoint password censored: %s", endpointCensored ? "YES" : "NO");
-            
-            // Handle WiFi password
-            if (!wifiCensored && !configWifiPass.isEmpty()) {
-                LOG("Using WiFi password from config.json (user provided new credential)");
-                wifiPassword = configWifiPass;
-            } else if (wifiCensored) {
-                LOG("Loading WiFi password from flash memory (censored in config)");
-                wifiPassword = loadCredential(PREFS_KEY_WIFI_PASS, "");
-            } else {
-                LOG_WARN("WiFi password is empty in config.json");
-                wifiPassword = "";
-            }
-            
-            // Handle endpoint password
-            if (!endpointCensored && !configEndpointPass.isEmpty()) {
-                LOG("Using endpoint password from config.json (user provided new credential)");
-                endpointPassword = configEndpointPass;
-            } else if (endpointCensored) {
-                LOG("Loading endpoint password from flash memory (censored in config)");
-                endpointPassword = loadCredential(PREFS_KEY_ENDPOINT_PASS, "");
-            } else {
-                LOG_WARN("Endpoint password is empty in config.json");
-                endpointPassword = "";
-            }
-            
-            // Determine if we have any credentials in flash
-            credentialsInFlash = (wifiCensored || endpointCensored);
-            
-            // Check if user provided any new credentials that need migration
-            bool hasNewWifiCred = (!wifiCensored && !configWifiPass.isEmpty());
-            bool hasNewEndpointCred = (!endpointCensored && !configEndpointPass.isEmpty());
-            
-            if (hasNewWifiCred || hasNewEndpointCred) {
-                // Attempt migration of new credentials using existing doc to avoid double allocation
-                if (migrateToSecureStorageWithDoc(sd, doc)) {
-                    LOG("New credentials migrated to secure storage successfully");
-                    credentialsInFlash = true;
-                } else {
-                    LOG_WARN("Migration failed - new credentials will remain in plain text");
-                }
-            } else if (wifiCensored && endpointCensored) {
-                LOG("All credentials loaded from secure flash memory");
-                LOG("Credential storage: SECURE (flash memory)");
-            }
+            hasValidEndpoint = true;
+        }
+    }
+    if (hasWebdavEndpoint()) {
+        bool webdavValid = !endpoint.isEmpty();
+        if (!webdavValid) {
+            LOG_WARN("WEBDAV endpoint configured but ENDPOINT is empty - WEBDAV backend will be disabled for this run");
+            _hasWebdavEndpoint = false;
+        } else {
+            hasValidEndpoint = true;
+        }
+    }
+    if (hasCloudEndpoint()) {
+        bool cloudValid = !cloudClientId.isEmpty();
+        if (!cloudValid) {
+            LOG_ERROR("CLOUD endpoint configured but CLOUD_CLIENT_ID is empty");
+        }
+        hasValidEndpoint = hasValidEndpoint || cloudValid;
+    }
+    if (!hasSmbEndpoint() && !hasCloudEndpoint() && !hasWebdavEndpoint()) {
+        if (endpointType.isEmpty() && !endpoint.isEmpty()) {
+            // Legacy: default to SMB when ENDPOINT is set but ENDPOINT_TYPE is empty
+            LOG_WARN("ENDPOINT_TYPE not set, defaulting to SMB for backward compatibility");
+            endpointType = "SMB";
+            _hasSmbEndpoint = true;
+            hasValidEndpoint = true;
+        } else if (!endpointType.isEmpty()) {
+            // Non-empty type that isn't SMB, CLOUD, or WEBDAV
+            hasValidEndpoint = !endpoint.isEmpty();
         }
     }
     
-    // Step 5: Validate configuration
-    isValid = !wifiSSID.isEmpty() && !endpoint.isEmpty();
+    // Validation of numeric ranges
+    if (maxDays <= 0) { maxDays = 365; }
+    else if (maxDays > 366) { maxDays = 366; }
+    
+    if (recentFolderDays < 0) { recentFolderDays = 2; }
+    
+    if (uploadMode != "scheduled" && uploadMode != "smart") { uploadMode = "smart"; }
+    
+    if (uploadStartHour < 0 || uploadStartHour > 23) { uploadStartHour = 9; }
+    if (uploadEndHour < 0 || uploadEndHour > 23) { uploadEndHour = 21; }
+    
+    if (inactivitySeconds < 10) { inactivitySeconds = 10; }
+    else if (inactivitySeconds > 3600) { inactivitySeconds = 3600; }
+    
+    if (exclusiveAccessMinutes < 1) { exclusiveAccessMinutes = 1; }
+    else if (exclusiveAccessMinutes > 30) { exclusiveAccessMinutes = 30; }
+    
+    if (cooldownMinutes < 1) { cooldownMinutes = 1; }
+    else if (cooldownMinutes > 60) { cooldownMinutes = 60; }
+    
+    if (cpuSpeedMhz < 80) { cpuSpeedMhz = 80; }
+    else if (cpuSpeedMhz > 240) { cpuSpeedMhz = 240; }
+    
+    isValid = !wifiSSID.isEmpty() && hasValidEndpoint;
     
     if (isValid) {
         LOG("========================================");
         LOG("Configuration loaded successfully");
+        LOGF("Endpoint type: %s", endpointType.c_str());
+        LOGF("Backends active this run: SMB=%s CLOUD=%s WEBDAV=%s",
+             hasSmbEndpoint() ? "YES" : "NO",
+             hasCloudEndpoint() ? "YES" : "NO",
+             hasWebdavEndpoint() ? "YES" : "NO");
         LOG_DEBUGF("Storage mode: %s", storePlainText ? "PLAIN TEXT" : "SECURE");
         LOG_DEBUGF("Credentials in flash: %s", credentialsInFlash ? "YES" : "NO");
+        // ... (logging continues)
         LOG("========================================");
     } else {
         LOG_ERROR("Configuration validation failed");
-        LOG("Missing required fields: WIFI_SSID or ENDPOINT");
+        LOG("Check WIFI_SSID and ENDPOINT/CLOUD_CLIENT_ID settings");
     }
     
     return isValid;
@@ -538,76 +559,82 @@ bool Config::loadFromSD(fs::FS &sd) {
 
 const String& Config::getWifiSSID() const { return wifiSSID; }
 const String& Config::getWifiPassword() const { return wifiPassword; }
+const String& Config::getHostname() const { return hostname; }
 const String& Config::getSchedule() const { return schedule; }
 const String& Config::getEndpoint() const { return endpoint; }
 const String& Config::getEndpointType() const { return endpointType; }
 const String& Config::getEndpointUser() const { return endpointUser; }
 const String& Config::getEndpointPassword() const { return endpointPassword; }
-int Config::getUploadHour() const { return uploadHour; }
-int Config::getSessionDurationSeconds() const { return sessionDurationSeconds; }
-int Config::getMaxRetryAttempts() const { return maxRetryAttempts; }
 int Config::getGmtOffsetHours() const { return gmtOffsetHours; }
-int Config::getBootDelaySeconds() const { return bootDelaySeconds; }
-int Config::getSdReleaseIntervalSeconds() const { return sdReleaseIntervalSeconds; }
-int Config::getSdReleaseWaitMs() const { return sdReleaseWaitMs; }
 bool Config::getLogToSdCard() const { return logToSdCard; }
+bool Config::getDebugMode() const { return debugMode; }
 bool Config::valid() const { return isValid; }
 
 // Credential storage mode getters
 bool Config::isStoringPlainText() const { return storePlainText; }
 bool Config::areCredentialsInFlash() const { return credentialsInFlash; }
+
+// Cloud upload getters
+const String& Config::getCloudClientId() const { return cloudClientId; }
+const String& Config::getCloudClientSecret() const { return cloudClientSecret; }
+const String& Config::getCloudTeamId() const { return cloudTeamId; }
+const String& Config::getCloudBaseUrl() const { return cloudBaseUrl; }
+int Config::getCloudDeviceId() const { return cloudDeviceId; }
+int Config::getMaxDays() const { return maxDays; }
+int Config::getRecentFolderDays() const { return recentFolderDays; }
+bool Config::getCloudInsecureTls() const { return cloudInsecureTls; }
+
+bool Config::hasCloudEndpoint() const { return _hasCloudEndpoint; }
+bool Config::hasSmbEndpoint() const { return _hasSmbEndpoint; }
+bool Config::hasWebdavEndpoint() const { return _hasWebdavEndpoint; }
+
 // Power management getters
 int Config::getCpuSpeedMhz() const { return cpuSpeedMhz; }
 WifiTxPower Config::getWifiTxPower() const { return wifiTxPower; }
 WifiPowerSaving Config::getWifiPowerSaving() const { return wifiPowerSaving; }
 
+// Upload FSM getters
+const String& Config::getUploadMode() const { return uploadMode; }
+int Config::getUploadStartHour() const { return uploadStartHour; }
+int Config::getUploadEndHour() const { return uploadEndHour; }
+int Config::getInactivitySeconds() const { return inactivitySeconds; }
+int Config::getExclusiveAccessMinutes() const { return exclusiveAccessMinutes; }
+int Config::getCooldownMinutes() const { return cooldownMinutes; }
+bool Config::isSmartMode() const { return uploadMode == "smart"; }
+
 // Helper methods for enum conversion
 WifiTxPower Config::parseWifiTxPower(const String& str) {
-    String lowerStr = str;
-    lowerStr.toLowerCase();
-    
-    if (lowerStr == "high") {
-        return WifiTxPower::POWER_HIGH;
-    } else if (lowerStr == "mid") {
-        return WifiTxPower::POWER_MID;
-    } else if (lowerStr == "low") {
-        return WifiTxPower::POWER_LOW;
-    } else {
-        LOG_WARN("Invalid WIFI_TX_PWR value, defaulting to 'high'");
-        return WifiTxPower::POWER_HIGH;
-    }
+    String s = str;
+    s.toUpperCase();
+    if (s == "HIGH") return WifiTxPower::POWER_HIGH;
+    if (s == "MID" || s == "MEDIUM") return WifiTxPower::POWER_MID;
+    if (s == "LOW") return WifiTxPower::POWER_LOW;
+    return WifiTxPower::POWER_HIGH; // Default
 }
 
 WifiPowerSaving Config::parseWifiPowerSaving(const String& str) {
-    String lowerStr = str;
-    lowerStr.toLowerCase();
-    
-    if (lowerStr == "none") {
-        return WifiPowerSaving::SAVE_NONE;
-    } else if (lowerStr == "mid") {
-        return WifiPowerSaving::SAVE_MID;
-    } else if (lowerStr == "max") {
-        return WifiPowerSaving::SAVE_MAX;
-    } else {
-        LOG_WARN("Invalid WIFI_PWR_SAVING value, defaulting to 'none'");
-        return WifiPowerSaving::SAVE_NONE;
-    }
+    String s = str;
+    s.toUpperCase();
+    if (s == "NONE") return WifiPowerSaving::SAVE_NONE;
+    if (s == "MID" || s == "MEDIUM") return WifiPowerSaving::SAVE_MID;
+    if (s == "MAX" || s == "HIGH") return WifiPowerSaving::SAVE_MAX;
+    return WifiPowerSaving::SAVE_NONE; // Default
 }
 
 String Config::wifiTxPowerToString(WifiTxPower power) {
     switch (power) {
-        case WifiTxPower::POWER_HIGH: return "high";
-        case WifiTxPower::POWER_MID: return "mid";
-        case WifiTxPower::POWER_LOW: return "low";
-        default: return "high";
+        case WifiTxPower::POWER_HIGH: return "HIGH";
+        case WifiTxPower::POWER_MID: return "MID";
+        case WifiTxPower::POWER_LOW: return "LOW";
+        default: return "UNKNOWN";
     }
 }
 
 String Config::wifiPowerSavingToString(WifiPowerSaving saving) {
     switch (saving) {
-        case WifiPowerSaving::SAVE_NONE: return "none";
-        case WifiPowerSaving::SAVE_MID: return "mid";
-        case WifiPowerSaving::SAVE_MAX: return "max";
-        default: return "none";
+        case WifiPowerSaving::SAVE_NONE: return "NONE";
+        case WifiPowerSaving::SAVE_MID: return "MID";
+        case WifiPowerSaving::SAVE_MAX: return "MAX";
+        default: return "UNKNOWN";
     }
 }

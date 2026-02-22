@@ -1,7 +1,6 @@
 #include <unity.h>
 #include "Arduino.h"
 #include "FS.h"
-#include "ArduinoJson.h"
 
 // Include mock implementations
 #include "../mocks/Arduino.cpp"
@@ -35,22 +34,24 @@ void tearDown(void) {
 
 // Test loading a valid configuration file
 void test_config_load_valid() {
-    // Create a valid config.json file
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "TestPassword123",
-        "SCHEDULE": "DAILY",
-        "ENDPOINT": "//192.168.1.100/share/uploads",
-        "ENDPOINT_TYPE": "SMB",
-        "ENDPOINT_USER": "testuser",
-        "ENDPOINT_PASS": "testpass",
-        "UPLOAD_HOUR": 14,
-        "SESSION_DURATION_SECONDS": 10,
-        "MAX_RETRY_ATTEMPTS": 5,
-        "GMT_OFFSET_HOURS": -8
-    })";
+    // Create a valid config.txt file
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = TestPassword123\n"
+        "SCHEDULE = DAILY\n"
+        "ENDPOINT = //192.168.1.100/share/uploads\n"
+        "ENDPOINT_TYPE = SMB\n"
+        "ENDPOINT_USER = testuser\n"
+        "ENDPOINT_PASSWORD = testpass\n"
+        "UPLOAD_MODE = scheduled\n"
+        "UPLOAD_START_HOUR = 14\n"
+        "UPLOAD_END_HOUR = 16\n"
+        "INACTIVITY_SECONDS = 140\n"
+        "EXCLUSIVE_ACCESS_MINUTES = 10\n"
+        "COOLDOWN_MINUTES = 12\n"
+        "GMT_OFFSET_HOURS = -8\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -64,21 +65,23 @@ void test_config_load_valid() {
     TEST_ASSERT_EQUAL_STRING("SMB", config.getEndpointType().c_str());
     TEST_ASSERT_EQUAL_STRING("testuser", config.getEndpointUser().c_str());
     TEST_ASSERT_EQUAL_STRING("testpass", config.getEndpointPassword().c_str());
-    TEST_ASSERT_EQUAL(14, config.getUploadHour());
-    TEST_ASSERT_EQUAL(10, config.getSessionDurationSeconds());
-    TEST_ASSERT_EQUAL(5, config.getMaxRetryAttempts());
+    TEST_ASSERT_EQUAL_STRING("scheduled", config.getUploadMode().c_str());
+    TEST_ASSERT_EQUAL(14, config.getUploadStartHour());
+    TEST_ASSERT_EQUAL(16, config.getUploadEndHour());
+    TEST_ASSERT_EQUAL(140, config.getInactivitySeconds());
+    TEST_ASSERT_EQUAL(10, config.getExclusiveAccessMinutes());
+    TEST_ASSERT_EQUAL(12, config.getCooldownMinutes());
     TEST_ASSERT_EQUAL(-8, config.getGmtOffsetHours());
 }
 
 // Test loading configuration with default values
 void test_config_load_with_defaults() {
-    // Create a minimal config.json with only required fields
-    std::string configContent = R"({
-        "WIFI_SSID": "MinimalNetwork",
-        "ENDPOINT": "//server/share"
-    })";
+    // Create a minimal config.txt with only required fields
+    std::string configContent = 
+        "WIFI_SSID = MinimalNetwork\n"
+        "ENDPOINT = //server/share\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -89,24 +92,23 @@ void test_config_load_with_defaults() {
     TEST_ASSERT_EQUAL_STRING("//server/share", config.getEndpoint().c_str());
     
     // Check default values
-    TEST_ASSERT_EQUAL(12, config.getUploadHour());  // Default noon
-    TEST_ASSERT_EQUAL(30, config.getSessionDurationSeconds());  // Default 30 seconds
-    TEST_ASSERT_EQUAL(3, config.getMaxRetryAttempts());  // Default 3 attempts
+    TEST_ASSERT_EQUAL_STRING("smart", config.getUploadMode().c_str());
+    TEST_ASSERT_EQUAL(9, config.getUploadStartHour());
+    TEST_ASSERT_EQUAL(21, config.getUploadEndHour());
+    TEST_ASSERT_EQUAL(125, config.getInactivitySeconds());
+    TEST_ASSERT_EQUAL(5, config.getExclusiveAccessMinutes());
+    TEST_ASSERT_EQUAL(10, config.getCooldownMinutes());
     TEST_ASSERT_EQUAL(0, config.getGmtOffsetHours());  // Default UTC
-    TEST_ASSERT_EQUAL(30, config.getBootDelaySeconds());  // Default 30 seconds
-    TEST_ASSERT_EQUAL(2, config.getSdReleaseIntervalSeconds());  // Default 2 seconds
-    TEST_ASSERT_EQUAL(500, config.getSdReleaseWaitMs());  // Default 500ms
     TEST_ASSERT_FALSE(config.getLogToSdCard());  // Default false (no SD logging)
 }
 
 // Test loading configuration with missing SSID (should fail)
 void test_config_load_missing_ssid() {
-    std::string configContent = R"({
-        "WIFI_PASS": "password",
-        "ENDPOINT": "//server/share"
-    })";
+    std::string configContent = 
+        "WIFI_PASSWORD = password\n"
+        "ENDPOINT = //server/share\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -117,12 +119,11 @@ void test_config_load_missing_ssid() {
 
 // Test loading configuration with missing endpoint (should fail)
 void test_config_load_missing_endpoint() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "password"
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = password\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -142,22 +143,27 @@ void test_config_load_file_not_found() {
     TEST_ASSERT_FALSE(config.valid());
 }
 
-// Test loading invalid JSON
-void test_config_load_invalid_json() {
-    std::string configContent = "{ invalid json content";
+// Test loading invalid format (should just skip invalid lines)
+void test_config_load_invalid_format() {
+    std::string configContent = 
+        "WIFI_SSID = ValidSSID\n"
+        "This line is invalid and has no equals sign\n"
+        "ENDPOINT = //server/share\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
     
-    TEST_ASSERT_FALSE(loaded);
-    TEST_ASSERT_FALSE(config.valid());
+    // Should still load valid parts
+    TEST_ASSERT_TRUE(loaded);
+    TEST_ASSERT_TRUE(config.valid());
+    TEST_ASSERT_EQUAL_STRING("ValidSSID", config.getWifiSSID().c_str());
 }
 
 // Test loading empty config file
 void test_config_load_empty_file() {
-    mockSD.addFile("/config.json", "");
+    mockSD.addFile("/config.txt", "");
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -168,15 +174,14 @@ void test_config_load_empty_file() {
 
 // Test WebDAV endpoint type
 void test_config_webdav_endpoint() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "ENDPOINT": "https://cloud.example.com/remote.php/dav/files/user/",
-        "ENDPOINT_TYPE": "WEBDAV",
-        "ENDPOINT_USER": "webdavuser",
-        "ENDPOINT_PASS": "webdavpass"
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = https://cloud.example.com/remote.php/dav/files/user/\n"
+        "ENDPOINT_TYPE = WEBDAV\n"
+        "ENDPOINT_USER = webdavuser\n"
+        "ENDPOINT_PASSWORD = webdavpass\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -187,16 +192,15 @@ void test_config_webdav_endpoint() {
     TEST_ASSERT_EQUAL_STRING("https://cloud.example.com/remote.php/dav/files/user/", config.getEndpoint().c_str());
 }
 
-// Test SleepHQ endpoint type
+// Test SleepHQ endpoint type (cloud endpoint requires CLOUD_CLIENT_ID)
 void test_config_sleephq_endpoint() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "ENDPOINT": "https://sleephq.com/api/upload",
-        "ENDPOINT_TYPE": "SLEEPHQ",
-        "ENDPOINT_USER": "apikey123"
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT_TYPE = SLEEPHQ\n"
+        "CLOUD_CLIENT_ID = test_client_id\n"
+        "CLOUD_CLIENT_SECRET = test_secret\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -204,17 +208,17 @@ void test_config_sleephq_endpoint() {
     TEST_ASSERT_TRUE(loaded);
     TEST_ASSERT_TRUE(config.valid());
     TEST_ASSERT_EQUAL_STRING("SLEEPHQ", config.getEndpointType().c_str());
+    TEST_ASSERT_TRUE(config.hasCloudEndpoint());
 }
 
 // Test configuration with negative GMT offset (e.g., PST)
 void test_config_negative_gmt_offset() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "ENDPOINT": "//server/share",
-        "GMT_OFFSET_HOURS": -8
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = //server/share\n"
+        "GMT_OFFSET_HOURS = -8\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -225,13 +229,12 @@ void test_config_negative_gmt_offset() {
 
 // Test configuration with positive GMT offset (e.g., CET)
 void test_config_positive_gmt_offset() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "ENDPOINT": "//server/share",
-        "GMT_OFFSET_HOURS": 1
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = //server/share\n"
+        "GMT_OFFSET_HOURS = 1\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -240,104 +243,81 @@ void test_config_positive_gmt_offset() {
     TEST_ASSERT_EQUAL(1, config.getGmtOffsetHours());  // +1 hour (CET)
 }
 
-// Test configuration with various upload hours
-void test_config_upload_hours() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "ENDPOINT": "//server/share",
-        "UPLOAD_HOUR": 23
-    })";
+// Test configuration with upload window hours
+void test_config_upload_window_hours() {
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = //server/share\n"
+        "UPLOAD_START_HOUR = 23\n"
+        "UPLOAD_END_HOUR = 5\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
     
     TEST_ASSERT_TRUE(loaded);
-    TEST_ASSERT_EQUAL(23, config.getUploadHour());
+    TEST_ASSERT_EQUAL(23, config.getUploadStartHour());
+    TEST_ASSERT_EQUAL(5, config.getUploadEndHour());
 }
 
-// Test configuration with long session duration
-void test_config_long_session_duration() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "ENDPOINT": "//server/share",
-        "SESSION_DURATION_SECONDS": 300
-    })";
+// Test configuration with exclusive access duration
+void test_config_exclusive_access_minutes() {
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = //server/share\n"
+        "EXCLUSIVE_ACCESS_MINUTES = 15\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
     
     TEST_ASSERT_TRUE(loaded);
-    TEST_ASSERT_EQUAL(300, config.getSessionDurationSeconds());  // 5 minutes
+    TEST_ASSERT_EQUAL(15, config.getExclusiveAccessMinutes());
 }
 
-// Test configuration with high retry attempts
-void test_config_high_retry_attempts() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "ENDPOINT": "//server/share",
-        "MAX_RETRY_ATTEMPTS": 10
-    })";
+// Test SD card logging configuration
+void test_config_boot_delay_and_logging() {
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = //server/share\n"
+        "LOG_TO_SD_CARD = true\n";
     
-    mockSD.addFile("/config.json", configContent);
-    
-    Config config;
-    bool loaded = config.loadFromSD(mockSD);
-    
-    TEST_ASSERT_TRUE(loaded);
-    TEST_ASSERT_EQUAL(10, config.getMaxRetryAttempts());
-}
-
-// Test new boot delay and SD release configuration
-void test_config_boot_delay_and_sd_release() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "ENDPOINT": "//server/share",
-        "BOOT_DELAY_SECONDS": 60,
-        "SD_RELEASE_INTERVAL_SECONDS": 5,
-        "SD_RELEASE_WAIT_MS": 1000,
-        "LOG_TO_SD_CARD": true
-    })";
-    
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
     
     TEST_ASSERT_TRUE(loaded);
-    TEST_ASSERT_EQUAL(60, config.getBootDelaySeconds());
-    TEST_ASSERT_EQUAL(5, config.getSdReleaseIntervalSeconds());
-    TEST_ASSERT_EQUAL(1000, config.getSdReleaseWaitMs());
     TEST_ASSERT_TRUE(config.getLogToSdCard());
 }
 
-// Test configuration with all timing fields
-void test_config_all_timing_fields() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "ENDPOINT": "//server/share",
-        "SESSION_DURATION_SECONDS": 60,
-        "MAX_RETRY_ATTEMPTS": 5,
-        "BOOT_DELAY_SECONDS": 45,
-        "SD_RELEASE_INTERVAL_SECONDS": 3,
-        "SD_RELEASE_WAIT_MS": 750,
-        "LOG_TO_SD_CARD": false
-    })";
+// Test configuration with all FSM timing fields
+void test_config_all_fsm_timing_fields() {
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = //server/share\n"
+        "UPLOAD_MODE = smart\n"
+        "UPLOAD_START_HOUR = 7\n"
+        "UPLOAD_END_HOUR = 21\n"
+        "INACTIVITY_SECONDS = 180\n"
+        "EXCLUSIVE_ACCESS_MINUTES = 6\n"
+        "COOLDOWN_MINUTES = 9\n"
+        "LOG_TO_SD_CARD = false\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
     
     TEST_ASSERT_TRUE(loaded);
-    TEST_ASSERT_EQUAL(60, config.getSessionDurationSeconds());
-    TEST_ASSERT_EQUAL(5, config.getMaxRetryAttempts());
-    TEST_ASSERT_EQUAL(45, config.getBootDelaySeconds());
-    TEST_ASSERT_EQUAL(3, config.getSdReleaseIntervalSeconds());
-    TEST_ASSERT_EQUAL(750, config.getSdReleaseWaitMs());
+    TEST_ASSERT_EQUAL_STRING("smart", config.getUploadMode().c_str());
+    TEST_ASSERT_EQUAL(7, config.getUploadStartHour());
+    TEST_ASSERT_EQUAL(21, config.getUploadEndHour());
+    TEST_ASSERT_EQUAL(180, config.getInactivitySeconds());
+    TEST_ASSERT_EQUAL(6, config.getExclusiveAccessMinutes());
+    TEST_ASSERT_EQUAL(9, config.getCooldownMinutes());
     TEST_ASSERT_FALSE(config.getLogToSdCard());
 }
 
@@ -348,15 +328,14 @@ void test_config_all_timing_fields() {
 
 // Test loading config with plain text mode enabled
 void test_config_plain_text_mode() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "PlainTextPassword",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "PlainEndpointPass",
-        "STORE_CREDENTIALS_PLAIN_TEXT": true
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = PlainTextPassword\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = PlainEndpointPass\n"
+        "STORE_CREDENTIALS_PLAIN_TEXT = true\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -371,14 +350,13 @@ void test_config_plain_text_mode() {
 
 // Test loading config with secure mode (default behavior)
 void test_config_secure_mode_migration() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "SecurePassword123",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "SecureEndpointPass"
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = SecurePassword123\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = SecureEndpointPass\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -393,7 +371,7 @@ void test_config_secure_mode_migration() {
     TEST_ASSERT_EQUAL_STRING("SecureEndpointPass", config.getEndpointPassword().c_str());
     
     // Config file should be censored
-    std::vector<uint8_t> contentVec = mockSD.getFileContent(String("/config.json"));
+    std::vector<uint8_t> contentVec = mockSD.getFileContent(String("/config.txt"));
     std::string updatedConfig(contentVec.begin(), contentVec.end());
     TEST_ASSERT_TRUE(updatedConfig.find("***STORED_IN_FLASH***") != std::string::npos);
 }
@@ -401,14 +379,13 @@ void test_config_secure_mode_migration() {
 // Test loading config with already censored credentials
 void test_config_secure_mode_already_censored() {
     // First, create a config and let it migrate
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "OriginalPassword",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "OriginalEndpointPass"
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = OriginalPassword\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = OriginalEndpointPass\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     {
         Config config1;
@@ -418,7 +395,7 @@ void test_config_secure_mode_already_censored() {
     }
     
     // Now create a new config object and load again (simulating reboot)
-    // The config file should now be censored and Preferences should have the data
+    // The config file is now censored, so it should load from Preferences
     Config config2;
     bool loaded = config2.loadFromSD(mockSD);
     
@@ -435,15 +412,14 @@ void test_config_secure_mode_already_censored() {
 // Test credential storage with various string lengths
 void test_config_credential_storage_various_lengths() {
     // Test short password
-    std::string shortConfig = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "abc",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "123"
-    })";
+    std::string shortConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = abc\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = 123\n";
     
     mockSD.clear();
-    mockSD.addFile("/config.json", shortConfig);
+    mockSD.addFile("/config.txt", shortConfig);
     
     Config config1;
     bool loaded1 = config1.loadFromSD(mockSD);
@@ -453,15 +429,14 @@ void test_config_credential_storage_various_lengths() {
     
     // Test long password (64 characters)
     std::string longPassword = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@";
-    std::string longConfig = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": ")" + longPassword + R"(",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": ")" + longPassword + R"("
-    })";
+    std::string longConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = " + longPassword + "\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = " + longPassword + "\n";
     
     mockSD.clear();
-    mockSD.addFile("/config.json", longConfig);
+    mockSD.addFile("/config.txt", longConfig);
     
     Config config2;
     bool loaded2 = config2.loadFromSD(mockSD);
@@ -472,11 +447,14 @@ void test_config_credential_storage_various_lengths() {
     // Test password with special characters
     std::string specialPass = "P@ssw0rd!#$%^&*()";
     std::string specialEndpoint = "End!@#$%^&*()_+";
-    std::string specialConfig = "{\"WIFI_SSID\":\"TestNetwork\",\"WIFI_PASS\":\"" + specialPass + 
-                                "\",\"ENDPOINT\":\"//server/share\",\"ENDPOINT_PASS\":\"" + specialEndpoint + "\"}";
+    std::string specialConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = " + specialPass + "\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = " + specialEndpoint + "\n";
     
     mockSD.clear();
-    mockSD.addFile("/config.json", specialConfig);
+    mockSD.addFile("/config.txt", specialConfig);
     
     Config config3;
     bool loaded3 = config3.loadFromSD(mockSD);
@@ -488,14 +466,13 @@ void test_config_credential_storage_various_lengths() {
 // Test credential retrieval with non-existing keys
 void test_config_credential_retrieval_missing_keys() {
     // Create config with censored credentials but no Preferences data
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "***STORED_IN_FLASH***",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "***STORED_IN_FLASH***"
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = ***STORED_IN_FLASH***\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = ***STORED_IN_FLASH***\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     // Clear any existing Preferences data for this test
     Preferences::clearAll();
@@ -511,14 +488,13 @@ void test_config_credential_retrieval_missing_keys() {
 
 // Test empty credential handling
 void test_config_empty_credentials() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": ""
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = \n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = \n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -533,15 +509,14 @@ void test_config_empty_credentials() {
 // Test switching from plain text to secure mode
 void test_config_switch_plain_to_secure() {
     // First load with plain text mode
-    std::string plainConfig = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "PlainPassword",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "PlainEndpointPass",
-        "STORE_CREDENTIALS_PLAIN_TEXT": true
-    })";
+    std::string plainConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = PlainPassword\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = PlainEndpointPass\n"
+        "STORE_CREDENTIALS_PLAIN_TEXT = true\n";
     
-    mockSD.addFile("/config.json", plainConfig);
+    mockSD.addFile("/config.txt", plainConfig);
     
     {
         Config config1;
@@ -551,16 +526,15 @@ void test_config_switch_plain_to_secure() {
     }
     
     // Now switch to secure mode by changing the flag
-    std::string secureConfig = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "PlainPassword",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "PlainEndpointPass",
-        "STORE_CREDENTIALS_PLAIN_TEXT": false
-    })";
+    std::string secureConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = PlainPassword\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = PlainEndpointPass\n"
+        "STORE_CREDENTIALS_PLAIN_TEXT = false\n";
     
     mockSD.clear();
-    mockSD.addFile("/config.json", secureConfig);
+    mockSD.addFile("/config.txt", secureConfig);
     
     Config config2;
     bool loaded2 = config2.loadFromSD(mockSD);
@@ -575,24 +549,23 @@ void test_config_switch_plain_to_secure() {
 
 // Test config file censoring accuracy
 void test_config_censoring_accuracy() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "ShouldBeCensored",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_TYPE": "SMB",
-        "ENDPOINT_USER": "testuser",
-        "ENDPOINT_PASS": "AlsoCensored",
-        "UPLOAD_HOUR": 12
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = ShouldBeCensored\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_TYPE = SMB\n"
+        "ENDPOINT_USER = testuser\n"
+        "ENDPOINT_PASSWORD = AlsoCensored\n"
+        "UPLOAD_MODE = scheduled\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
     TEST_ASSERT_TRUE_MESSAGE(loaded, "Config should load successfully");
     
     // Read back the config file
-    std::vector<uint8_t> content = mockSD.getFileContent(String("/config.json"));
+    std::vector<uint8_t> content = mockSD.getFileContent(String("/config.txt"));
     std::string fileContent(content.begin(), content.end());
     
     // Verify credentials are censored
@@ -614,14 +587,13 @@ void test_config_censoring_accuracy() {
 
 // Test multiple Config instances with Preferences
 void test_config_multiple_instances() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "SharedPassword",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "SharedEndpointPass"
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = SharedPassword\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = SharedEndpointPass\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     // Create first config instance and let it migrate
     {
@@ -643,13 +615,12 @@ void test_config_multiple_instances() {
 
 // Test config with only WiFi password (no endpoint password)
 void test_config_wifi_only_secure() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "WiFiOnlyPassword",
-        "ENDPOINT": "//server/share"
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = WiFiOnlyPassword\n"
+        "ENDPOINT = //server/share\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -663,13 +634,12 @@ void test_config_wifi_only_secure() {
 
 // Test config with only endpoint password (no WiFi password)
 void test_config_endpoint_only_secure() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "EndpointOnlyPassword"
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = EndpointOnlyPassword\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -688,14 +658,13 @@ void test_config_endpoint_only_secure() {
 // Test updating only WiFi password (endpoint remains censored)
 void test_config_update_wifi_only() {
     // First, create initial config and let it migrate to secure storage
-    std::string initialConfig = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "OriginalWiFiPass",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "OriginalEndpointPass"
-    })";
+    std::string initialConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = OriginalWiFiPass\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = OriginalEndpointPass\n";
     
-    mockSD.addFile("/config.json", initialConfig);
+    mockSD.addFile("/config.txt", initialConfig);
     
     {
         Config config1;
@@ -704,16 +673,15 @@ void test_config_update_wifi_only() {
         // Let migration happen and config file get censored
     }
     
-    // Now simulate user updating only WiFi password in config.json
-    std::string updatedConfig = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "NewWiFiPassword123",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "***STORED_IN_FLASH***"
-    })";
+    // Now simulate user updating only WiFi password in config.txt
+    std::string updatedConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = NewWiFiPassword123\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = ***STORED_IN_FLASH***\n";
     
     mockSD.clear();
-    mockSD.addFile("/config.json", updatedConfig);
+    mockSD.addFile("/config.txt", updatedConfig);
     
     Config config2;
     bool loaded2 = config2.loadFromSD(mockSD);
@@ -730,14 +698,13 @@ void test_config_update_wifi_only() {
 // Test updating only endpoint password (WiFi remains censored)
 void test_config_update_endpoint_only() {
     // First, create initial config and let it migrate to secure storage
-    std::string initialConfig = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "OriginalWiFiPass",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "OriginalEndpointPass"
-    })";
+    std::string initialConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = OriginalWiFiPass\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = OriginalEndpointPass\n";
     
-    mockSD.addFile("/config.json", initialConfig);
+    mockSD.addFile("/config.txt", initialConfig);
     
     {
         Config config1;
@@ -746,16 +713,15 @@ void test_config_update_endpoint_only() {
         // Let migration happen and config file get censored
     }
     
-    // Now simulate user updating only endpoint password in config.json
-    std::string updatedConfig = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "***STORED_IN_FLASH***",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "NewEndpointPassword456"
-    })";
+    // Now simulate user updating only endpoint password in config.txt
+    std::string updatedConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = ***STORED_IN_FLASH***\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = NewEndpointPassword456\n";
     
     mockSD.clear();
-    mockSD.addFile("/config.json", updatedConfig);
+    mockSD.addFile("/config.txt", updatedConfig);
     
     Config config2;
     bool loaded2 = config2.loadFromSD(mockSD);
@@ -772,14 +738,13 @@ void test_config_update_endpoint_only() {
 // Test updating both credentials (both plain text in config)
 void test_config_update_both_credentials() {
     // First, create initial config and let it migrate to secure storage
-    std::string initialConfig = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "OriginalWiFiPass",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "OriginalEndpointPass"
-    })";
+    std::string initialConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = OriginalWiFiPass\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = OriginalEndpointPass\n";
     
-    mockSD.addFile("/config.json", initialConfig);
+    mockSD.addFile("/config.txt", initialConfig);
     
     {
         Config config1;
@@ -788,16 +753,15 @@ void test_config_update_both_credentials() {
         // Let migration happen and config file get censored
     }
     
-    // Now simulate user updating both passwords in config.json
-    std::string updatedConfig = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "NewWiFiPassword123",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "NewEndpointPassword456"
-    })";
+    // Now simulate user updating both passwords in config.txt
+    std::string updatedConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = NewWiFiPassword123\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = NewEndpointPassword456\n";
     
     mockSD.clear();
-    mockSD.addFile("/config.json", updatedConfig);
+    mockSD.addFile("/config.txt", updatedConfig);
     
     Config config2;
     bool loaded2 = config2.loadFromSD(mockSD);
@@ -821,14 +785,13 @@ void test_config_mixed_state_wifi_new() {
         prefs.end();
     }
     
-    std::string mixedConfig = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "NewWiFiPassword",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "***STORED_IN_FLASH***"
-    })";
+    std::string mixedConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = NewWiFiPassword\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = ***STORED_IN_FLASH***\n";
     
-    mockSD.addFile("/config.json", mixedConfig);
+    mockSD.addFile("/config.txt", mixedConfig);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -852,14 +815,13 @@ void test_config_mixed_state_endpoint_new() {
         prefs.end();
     }
     
-    std::string mixedConfig = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "***STORED_IN_FLASH***",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "NewEndpointPassword"
-    })";
+    std::string mixedConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = ***STORED_IN_FLASH***\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = NewEndpointPassword\n";
     
-    mockSD.addFile("/config.json", mixedConfig);
+    mockSD.addFile("/config.txt", mixedConfig);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -884,14 +846,13 @@ void test_config_mixed_state_both_new() {
         prefs.end();
     }
     
-    std::string mixedConfig = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "NewWiFiPassword",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_PASS": "NewEndpointPassword"
-    })";
+    std::string mixedConfig = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = NewWiFiPassword\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_PASSWORD = NewEndpointPassword\n";
     
-    mockSD.addFile("/config.json", mixedConfig);
+    mockSD.addFile("/config.txt", mixedConfig);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -902,21 +863,20 @@ void test_config_mixed_state_both_new() {
     // Should use new passwords from config (prioritized over stored ones)
     TEST_ASSERT_EQUAL_STRING("NewWiFiPassword", config.getWifiPassword().c_str());
     TEST_ASSERT_EQUAL_STRING("NewEndpointPassword", config.getEndpointPassword().c_str());
-    TEST_ASSERT_TRUE_MESSAGE(config.areCredentialsInFlash(), "Should have credentials in flash after migration");
+    TEST_ASSERT_TRUE_MESSAGE(config.areCredentialsInFlash(), "Should have credentials in flash");
 }
 
 // Test power management configuration with default values
 void test_config_power_management_defaults() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "password",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_TYPE": "SMB",
-        "ENDPOINT_USER": "user",
-        "ENDPOINT_PASS": "pass"
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = password\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_TYPE = SMB\n"
+        "ENDPOINT_USER = user\n"
+        "ENDPOINT_PASSWORD = pass\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -932,19 +892,18 @@ void test_config_power_management_defaults() {
 
 // Test power management configuration with custom values
 void test_config_power_management_custom() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "password",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_TYPE": "SMB",
-        "ENDPOINT_USER": "user",
-        "ENDPOINT_PASS": "pass",
-        "CPU_SPEED_MHZ": 160,
-        "WIFI_TX_PWR": "mid",
-        "WIFI_PWR_SAVING": "max"
-    })";
+    std::string configContent = 
+        "WIFI_SSID = TestNetwork\n"
+        "WIFI_PASSWORD = password\n"
+        "ENDPOINT = //server/share\n"
+        "ENDPOINT_TYPE = SMB\n"
+        "ENDPOINT_USER = user\n"
+        "ENDPOINT_PASSWORD = pass\n"
+        "CPU_SPEED_MHZ = 160\n"
+        "WIFI_TX_PWR = mid\n"
+        "WIFI_PWR_SAVING = max\n";
     
-    mockSD.addFile("/config.json", configContent);
+    mockSD.addFile("/config.txt", configContent);
     
     Config config;
     bool loaded = config.loadFromSD(mockSD);
@@ -958,231 +917,27 @@ void test_config_power_management_custom() {
     TEST_ASSERT_EQUAL(WifiPowerSaving::SAVE_MAX, config.getWifiPowerSaving());
 }
 
-// Test power management configuration with case insensitive values
-void test_config_power_management_case_insensitive() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "password",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_TYPE": "SMB",
-        "ENDPOINT_USER": "user",
-        "ENDPOINT_PASS": "pass",
-        "CPU_SPEED_MHZ": 80,
-        "WIFI_TX_PWR": "LOW",
-        "WIFI_PWR_SAVING": "MID"
-    })";
-    
-    mockSD.addFile("/config.json", configContent);
-    
-    Config config;
-    bool loaded = config.loadFromSD(mockSD);
-    
-    TEST_ASSERT_TRUE(loaded);
-    TEST_ASSERT_TRUE(config.valid());
-    
-    // Test case insensitive parsing
-    TEST_ASSERT_EQUAL(80, config.getCpuSpeedMhz());
-    TEST_ASSERT_EQUAL(WifiTxPower::POWER_LOW, config.getWifiTxPower());
-    TEST_ASSERT_EQUAL(WifiPowerSaving::SAVE_MID, config.getWifiPowerSaving());
-}
-
-// Test power management configuration with invalid values (should use defaults)
-void test_config_power_management_invalid_values() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "password",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_TYPE": "SMB",
-        "ENDPOINT_USER": "user",
-        "ENDPOINT_PASS": "pass",
-        "CPU_SPEED_MHZ": 50,
-        "WIFI_TX_PWR": "invalid",
-        "WIFI_PWR_SAVING": "unknown"
-    })";
-    
-    mockSD.addFile("/config.json", configContent);
-    
-    Config config;
-    bool loaded = config.loadFromSD(mockSD);
-    
-    TEST_ASSERT_TRUE(loaded);
-    TEST_ASSERT_TRUE(config.valid());
-    
-    // Test validation and fallback to defaults
-    TEST_ASSERT_EQUAL(80, config.getCpuSpeedMhz());  // Should be clamped to minimum
-    TEST_ASSERT_EQUAL(WifiTxPower::POWER_HIGH, config.getWifiTxPower());  // Should fallback to default
-    TEST_ASSERT_EQUAL(WifiPowerSaving::SAVE_NONE, config.getWifiPowerSaving());  // Should fallback to default
-}
-
-// Test power management configuration with boundary values
-void test_config_power_management_boundaries() {
-    std::string configContent = R"({
-        "WIFI_SSID": "TestNetwork",
-        "WIFI_PASS": "password",
-        "ENDPOINT": "//server/share",
-        "ENDPOINT_TYPE": "SMB",
-        "ENDPOINT_USER": "user",
-        "ENDPOINT_PASS": "pass",
-        "CPU_SPEED_MHZ": 300
-    })";
-    
-    mockSD.addFile("/config.json", configContent);
-    
-    Config config;
-    bool loaded = config.loadFromSD(mockSD);
-    
-    TEST_ASSERT_TRUE(loaded);
-    TEST_ASSERT_TRUE(config.valid());
-    
-    // Test boundary validation (should be clamped to maximum)
-    TEST_ASSERT_EQUAL(240, config.getCpuSpeedMhz());
-}
-
-// Test that the default config.json.example fits within JSON_FILE_MAX_SIZE
-void test_config_default_example_fits_in_buffer() {
-    // This is the default config from docs/config.json.example
-    std::string defaultConfig = R"({
-  "WIFI_SSID": "YourNetworkName",
-  "WIFI_PASS": "YourNetworkPassword",
-
-  "ENDPOINT": "//192.168.1.100/cpap_backups",
-  "ENDPOINT_TYPE": "SMB",
-  "ENDPOINT_USER": "username",
-  "ENDPOINT_PASS": "password",
-  "UPLOAD_HOUR": 12,
-
-  "SESSION_DURATION_SECONDS": 30,
-  "MAX_RETRY_ATTEMPTS": 3,
-  "_comment_timezone_1": "GMT_OFFSET_HOURS: Offset from GMT in hours. Examples: PST=-8, EST=-5, UTC=0, CET=+1, JST=+9",
-  "GMT_OFFSET_HOURS": 0,
-
-  "LOG_TO_SD_CARD": false,
-
-  "CPU_SPEED_MHZ": 240,
-  "WIFI_TX_PWR": "high",
-  "WIFI_PWR_SAVING": "none"
-})";
-    
-    // Verify the default config size is well within JSON_FILE_MAX_SIZE
-    size_t configSize = defaultConfig.length();
-    
-    TEST_ASSERT_LESS_THAN_MESSAGE(Config::JSON_FILE_MAX_SIZE, configSize, 
-        "Default config.json.example must fit within JSON_FILE_MAX_SIZE buffer");
-    
-    // Also verify it can be parsed successfully
-    mockSD.addFile("/config.json", defaultConfig);
-    
-    Config config;
-    bool loaded = config.loadFromSD(mockSD);
-    
-    TEST_ASSERT_TRUE_MESSAGE(loaded, "Default config should load successfully");
-    TEST_ASSERT_TRUE_MESSAGE(config.valid(), "Default config should be valid");
-    
-    // Verify some key default values are parsed correctly
-    TEST_ASSERT_EQUAL_STRING("YourNetworkName", config.getWifiSSID().c_str());
-    TEST_ASSERT_EQUAL_STRING("//192.168.1.100/cpap_backups", config.getEndpoint().c_str());
-    TEST_ASSERT_EQUAL_STRING("SMB", config.getEndpointType().c_str());
-    TEST_ASSERT_EQUAL(12, config.getUploadHour());
-    TEST_ASSERT_EQUAL(30, config.getSessionDurationSeconds());
-    TEST_ASSERT_EQUAL(3, config.getMaxRetryAttempts());
-    TEST_ASSERT_EQUAL(0, config.getGmtOffsetHours());
-    TEST_ASSERT_FALSE(config.getLogToSdCard());
-    TEST_ASSERT_EQUAL(240, config.getCpuSpeedMhz());
-    TEST_ASSERT_EQUAL(WifiTxPower::POWER_HIGH, config.getWifiTxPower());
-    TEST_ASSERT_EQUAL(WifiPowerSaving::SAVE_NONE, config.getWifiPowerSaving());
-}
-
-// Test worst-case config with maximum-length strings (128 chars for endpoint and password)
-void test_config_worst_case_max_size() {
-    // Create maximum-length strings (128 characters each)
-    std::string maxEndpoint(128, 'E');  // 128 'E' characters
-    std::string maxEndpointPass(128, 'P');  // 128 'P' characters
-    std::string maxWifiSSID(32, 'W');  // WiFi SSID max is 32 chars
-    std::string maxWifiPass(128, 'X');  // 128 'X' characters
-    std::string maxEndpointUser(128, 'U');  // 128 'U' characters
-    std::string maxSchedule(128, 'S');  // 128 'S' characters
-    
-    // Build worst-case config with all fields at maximum length
-    std::string worstCaseConfig = 
-        "{\n"
-        "  \"WIFI_SSID\": \"" + maxWifiSSID + "\",\n"
-        "  \"WIFI_PASS\": \"" + maxWifiPass + "\",\n"
-        "  \"SCHEDULE\": \"" + maxSchedule + "\",\n"
-        "  \"ENDPOINT\": \"" + maxEndpoint + "\",\n"
-        "  \"ENDPOINT_TYPE\": \"WEBDAV\",\n"
-        "  \"ENDPOINT_USER\": \"" + maxEndpointUser + "\",\n"
-        "  \"ENDPOINT_PASS\": \"" + maxEndpointPass + "\",\n"
-        "  \"UPLOAD_HOUR\": 23,\n"
-        "  \"SESSION_DURATION_SECONDS\": 300,\n"
-        "  \"MAX_RETRY_ATTEMPTS\": 10,\n"
-        "  \"_comment_timezone_1\": \"GMT_OFFSET_HOURS: Offset from GMT in hours. Examples: PST=-8, EST=-5, UTC=0, CET=+1, JST=+9\",\n"
-        "  \"GMT_OFFSET_HOURS\": -12,\n"
-        "  \"BOOT_DELAY_SECONDS\": 120,\n"
-        "  \"SD_RELEASE_INTERVAL_SECONDS\": 10,\n"
-        "  \"SD_RELEASE_WAIT_MS\": 2000,\n"
-        "  \"LOG_TO_SD_CARD\": true,\n"
-        "  \"CPU_SPEED_MHZ\": 160,\n"
-        "  \"WIFI_TX_PWR\": \"low\",\n"
-        "  \"WIFI_PWR_SAVING\": \"max\",\n"
-        "  \"STORE_CREDENTIALS_PLAIN_TEXT\": true\n"
-        "}";
-    
-    size_t worstCaseSize = worstCaseConfig.length();
-    
-    // Verify worst-case config fits within JSON_FILE_MAX_SIZE
-    TEST_ASSERT_LESS_THAN_MESSAGE(Config::JSON_FILE_MAX_SIZE, worstCaseSize,
-        "Worst-case config with 128-char strings must fit within JSON_FILE_MAX_SIZE buffer");
-    
-    // Also verify it can be parsed and loaded successfully
-    mockSD.addFile("/config.json", worstCaseConfig);
-    
-    Config config;
-    bool loaded = config.loadFromSD(mockSD);
-    
-    TEST_ASSERT_TRUE_MESSAGE(loaded, "Worst-case config should load successfully");
-    TEST_ASSERT_TRUE_MESSAGE(config.valid(), "Worst-case config should be valid");
-    
-    // Verify the maximum-length values are preserved
-    TEST_ASSERT_EQUAL_STRING(maxWifiSSID.c_str(), config.getWifiSSID().c_str());
-    TEST_ASSERT_EQUAL_STRING(maxWifiPass.c_str(), config.getWifiPassword().c_str());
-    TEST_ASSERT_EQUAL_STRING(maxSchedule.c_str(), config.getSchedule().c_str());
-    TEST_ASSERT_EQUAL_STRING(maxEndpoint.c_str(), config.getEndpoint().c_str());
-    TEST_ASSERT_EQUAL_STRING(maxEndpointUser.c_str(), config.getEndpointUser().c_str());
-    TEST_ASSERT_EQUAL_STRING(maxEndpointPass.c_str(), config.getEndpointPassword().c_str());
-    
-    // Log the actual size for reference
-    char sizeMsg[128];
-    snprintf(sizeMsg, sizeof(sizeMsg), "Worst-case config size: %zu bytes (limit: %zu bytes, margin: %zu bytes)",
-             worstCaseSize, Config::JSON_FILE_MAX_SIZE, Config::JSON_FILE_MAX_SIZE - worstCaseSize);
-    TEST_MESSAGE(sizeMsg);
-}
-
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     
-    // Basic loading tests
     RUN_TEST(test_config_load_valid);
     RUN_TEST(test_config_load_with_defaults);
     RUN_TEST(test_config_load_missing_ssid);
     RUN_TEST(test_config_load_missing_endpoint);
     RUN_TEST(test_config_load_file_not_found);
-    RUN_TEST(test_config_load_invalid_json);
+    RUN_TEST(test_config_load_invalid_format);
     RUN_TEST(test_config_load_empty_file);
-    
-    // Endpoint type tests
     RUN_TEST(test_config_webdav_endpoint);
     RUN_TEST(test_config_sleephq_endpoint);
     
-    // Configuration value tests
     RUN_TEST(test_config_negative_gmt_offset);
     RUN_TEST(test_config_positive_gmt_offset);
-    RUN_TEST(test_config_upload_hours);
-    RUN_TEST(test_config_long_session_duration);
-    RUN_TEST(test_config_high_retry_attempts);
-    RUN_TEST(test_config_boot_delay_and_sd_release);
-    RUN_TEST(test_config_all_timing_fields);
+    RUN_TEST(test_config_upload_window_hours);
+    RUN_TEST(test_config_exclusive_access_minutes);
+    RUN_TEST(test_config_boot_delay_and_logging);
+    RUN_TEST(test_config_all_fsm_timing_fields);
     
-    // Credential security tests (Preferences-based)
+    // Credential security tests
     RUN_TEST(test_config_plain_text_mode);
     RUN_TEST(test_config_secure_mode_migration);
     RUN_TEST(test_config_secure_mode_already_censored);
@@ -1206,13 +961,8 @@ int main(int argc, char **argv) {
     // Power management tests
     RUN_TEST(test_config_power_management_defaults);
     RUN_TEST(test_config_power_management_custom);
-    RUN_TEST(test_config_power_management_case_insensitive);
-    RUN_TEST(test_config_power_management_invalid_values);
-    RUN_TEST(test_config_power_management_boundaries);
     
-    // Config size validation tests
-    RUN_TEST(test_config_default_example_fits_in_buffer);
-    RUN_TEST(test_config_worst_case_max_size);
+    UNITY_END();
     
-    return UNITY_END();
+    return 0;
 }

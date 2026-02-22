@@ -11,6 +11,7 @@ enum class WifiPowerSaving;
 class WiFiManager {
 private:
     bool connected;
+    bool mdnsStarted;
     static void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info);
 
 public:
@@ -23,6 +24,9 @@ public:
     String getIPAddress() const;
     int getSignalStrength() const;  // Returns RSSI in dBm
     String getSignalQuality() const;  // Returns quality description
+    
+    // mDNS support
+    bool startMDNS(const String& hostname);
     
     // Power management methods
     void setHighPerformanceMode();    // Disable power save for uploads

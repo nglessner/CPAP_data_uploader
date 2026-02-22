@@ -1,6 +1,20 @@
 # Mock Infrastructure
 
-This directory contains mock implementations of hardware-dependent components for unit testing.
+This directory contains mock implementations of hardware-dependent components for unit testing. All mocks are automatically activated when `UNIT_TEST` is defined (set by the native PlatformIO test environment).
+
+## Quick Reference
+
+| Mock | Header | What it replaces |
+|---|---|---|
+| Arduino core | `Arduino.h` | Types, `millis()`, `delay()`, `Serial`, math helpers |
+| Filesystem (SD) | `FS.h` / `MockFS.h` | `fs::FS`, `fs::File` — in-memory file storage |
+| Time | `MockTime.h` | `millis()`, `time()` — deterministic, manually advanced |
+| Logger | `MockLogger.h` | `LOG()`, `LOGF()` — prints to stdout |
+| ArduinoJson | `ArduinoJson.h` | `StaticJsonDocument`, `DynamicJsonDocument`, `deserializeJson()` |
+
+Jump to any section below for API details and usage examples.
+
+---
 
 ## Available Mocks
 
@@ -162,13 +176,15 @@ void test_json_parsing() {
     // Create a JSON config file
     std::string jsonContent = R"({
         "WIFI_SSID": "TestNetwork",
-        "UPLOAD_HOUR": 14,
-        "GMT_OFFSET_SECONDS": -28800
+        "UPLOAD_MODE": "scheduled",
+        "UPLOAD_START_HOUR": 14,
+        "UPLOAD_END_HOUR": 16,
+        "GMT_OFFSET_HOURS": -8
     })";
-    mockSD.addFile("/config.json", jsonContent);
+    mockSD.addFile("/config.txt", jsonContent);
     
     // Parse the JSON
-    fs::File file = mockSD.open("/config.json", "r");
+    fs::File file = mockSD.open("/config.txt", "r");
     StaticJsonDocument<1024> doc;
     DeserializationError error = deserializeJson(doc, file);
     file.close();
@@ -177,12 +193,16 @@ void test_json_parsing() {
     
     // Access values with defaults
     String ssid = doc["WIFI_SSID"] | "";
-    int hour = doc["UPLOAD_HOUR"] | 12;
-    long offset = doc["GMT_OFFSET_SECONDS"] | 0L;
+    String mode = doc["UPLOAD_MODE"] | "scheduled";
+    int startHour = doc["UPLOAD_START_HOUR"] | 8;
+    int endHour = doc["UPLOAD_END_HOUR"] | 22;
+    int offset = doc["GMT_OFFSET_HOURS"] | 0;
     
     TEST_ASSERT_EQUAL_STRING("TestNetwork", ssid.c_str());
-    TEST_ASSERT_EQUAL(14, hour);
-    TEST_ASSERT_EQUAL(-28800, offset);
+    TEST_ASSERT_EQUAL_STRING("scheduled", mode.c_str());
+    TEST_ASSERT_EQUAL(14, startHour);
+    TEST_ASSERT_EQUAL(16, endHour);
+    TEST_ASSERT_EQUAL(-8, offset);
 }
 
 void test_json_nested_objects() {

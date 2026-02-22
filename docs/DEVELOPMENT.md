@@ -17,7 +17,7 @@ This document is for developers who want to build, modify, or contribute to the 
 
 ### Core Components
 
-- **Config** - Manages configuration from SD card (`config.json`) and secure credential storage
+- **Config** - Manages configuration from SD card (`config.txt`) and secure credential storage
 - **SDCardManager** - Handles SD card sharing with CPAP machine
 - **WiFiManager** - Manages WiFi station mode connection
 - **FileUploader** - Orchestrates file upload to remote endpoints
@@ -25,19 +25,19 @@ This document is for developers who want to build, modify, or contribute to the 
 ### Upload Management
 
 - **UploadStateManager** - Tracks which files/folders have been uploaded using checksums
-- **TimeBudgetManager** - Enforces time limits on SD card access (respects CPAP priority)
-- **ScheduleManager** - Manages daily upload scheduling with NTP time synchronization
+- **ScheduleManager** - Manages upload scheduling with NTP time synchronization
+- **UploadFSM** - Finite state machine controlling the upload lifecycle (IDLE → LISTENING → ACQUIRING → UPLOADING → RELEASING → COOLDOWN)
 
 ### Upload Backends
 
 - **SMBUploader** - Uploads files to SMB/CIFS shares (Windows, NAS, Samba)
 - **WebDAVUploader** - Uploads to WebDAV servers (TODO: placeholder)
-- **SleepHQUploader** - Direct upload to SleepHQ service (TODO: placeholder)
+- **SleepHQUploader** - Direct upload to SleepHQ cloud service via REST API with OAuth authentication
 
 ### Supporting Components
 
 - **Logger** - Circular buffer logging system with web API access
-- **TestWebServer** - Optional web server for development/testing
+- **WebServer** - Optional web server for development/testing
 
 ### Power Management (v0.4.3+)
 
@@ -70,22 +70,22 @@ Power settings are applied automatically during startup and maintain full web se
 │   ├── WiFiManager.cpp      # WiFi connection handling
 │   ├── FileUploader.cpp     # File upload orchestration
 │   ├── UploadStateManager.cpp # Upload state tracking
-│   ├── TimeBudgetManager.cpp  # Time budget enforcement
 │   ├── ScheduleManager.cpp    # Upload scheduling
 │   ├── SMBUploader.cpp        # SMB upload implementation
-│   ├── TestWebServer.cpp      # Test web server (optional)
+│   ├── WebServer.cpp      # Web server (optional)
 │   ├── Logger.cpp             # Circular buffer logging
 │   ├── WebDAVUploader.cpp     # WebDAV upload (placeholder)
-│   └── SleepHQUploader.cpp    # SleepHQ upload (placeholder)
+│   └── SleepHQUploader.cpp    # SleepHQ cloud upload (OAuth, multipart, TLS)
 ├── include/                  # Header files
 │   ├── pins_config.h        # Pin definitions for SD WIFI PRO
 │   └── *.h                  # Component headers
-├── test/                     # Unit tests (72 tests, all passing)
-│   ├── test_time_budget_manager/
+├── test/                     # Unit tests
 │   ├── test_config/
-│   ├── test_webserver/
+│   ├── test_credential_migration/
+│   ├── test_logger_circular_buffer/
 │   ├── test_native/
 │   ├── test_schedule_manager/
+│   ├── test_upload_state_manager/
 │   └── mocks/               # Mock implementations
 ├── components/               # ESP-IDF components (not in git)
 │   └── libsmb2/             # SMB2/3 client library (cloned by setup script)
@@ -173,14 +173,12 @@ The project works with:
 
 ### Power Management Settings
 
-The system supports configurable power management through `config.json`:
+The system supports configurable power management through `config.txt`:
 
-```json
-{
-  "CPU_SPEED_MHZ": 160,        // CPU frequency: 80-240MHz (default: 240)
-  "WIFI_TX_PWR": "mid",        // WiFi TX power: "high"/"mid"/"low" (default: "high")  
-  "WIFI_PWR_SAVING": "mid"     // WiFi power save: "none"/"mid"/"max" (default: "none")
-}
+```ini
+CPU_SPEED_MHZ = 160        # CPU frequency: 80-240MHz (default: 240)
+WIFI_TX_PWR = mid          # WiFi TX power: "high"/"mid"/"low" (default: "high")  
+WIFI_PWR_SAVING = mid      # WiFi power save: "none"/"mid"/"max" (default: "none")
 ```
 
 **Implementation Details:**
@@ -198,6 +196,119 @@ The system supports configurable power management through `config.json`:
 - Enum values avoid Arduino macro conflicts (e.g., `POWER_HIGH` vs `HIGH`)
 - Helper methods convert between string config and enum values
 - WiFiManager provides methods for dynamic power mode switching
+
+### Cloud Upload (SleepHQ)
+
+The system supports direct upload to SleepHQ cloud service via REST API. This can be used standalone or alongside SMB upload for dual-backend operation.
+
+#### Enabling Cloud Upload
+
+1. **Build flag:** Uncomment `-DENABLE_SLEEPHQ_UPLOAD` in `platformio.ini`
+2. **Configuration:** Add cloud fields to `config.txt` on the SD card
+
+#### Cloud-Only Configuration
+
+```json
+{
+  "WIFI_SSID": "MyNetwork",
+  "WIFI_PASS": "wifi_password",
+  "ENDPOINT_TYPE": "CLOUD",
+  "CLOUD_CLIENT_ID": "your-sleephq-client-id",
+  "CLOUD_CLIENT_SECRET": "your-sleephq-client-secret",
+  "GMT_OFFSET_HOURS": -8
+}
+```
+
+#### Dual-Backend Configuration (SMB + Cloud)
+
+Upload to both a local NAS and SleepHQ simultaneously:
+
+```json
+{
+  "WIFI_SSID": "MyNetwork",
+  "WIFI_PASS": "wifi_password",
+  "ENDPOINT": "//192.168.1.100/share/cpap",
+  "ENDPOINT_TYPE": "SMB,CLOUD",
+  "ENDPOINT_USER": "smbuser",
+  "ENDPOINT_PASS": "smbpass",
+  "CLOUD_CLIENT_ID": "your-sleephq-client-id",
+  "CLOUD_CLIENT_SECRET": "your-sleephq-client-secret",
+  "GMT_OFFSET_HOURS": -8
+}
+```
+
+#### Cloud Configuration Fields
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `CLOUD_CLIENT_ID` | Yes (for cloud) | — | SleepHQ OAuth client ID |
+| `CLOUD_CLIENT_SECRET` | Yes (for cloud) | — | SleepHQ OAuth client secret (auto-migrated to flash) |
+| `CLOUD_TEAM_ID` | No | auto-discovered | SleepHQ team ID (discovered via `/api/v1/me` if omitted) |
+| `CLOUD_DEVICE_ID` | No | `0` | SleepHQ device ID (sent with import creation) |
+| `CLOUD_BASE_URL` | No | `https://sleephq.com` | API base URL |
+| `CLOUD_INSECURE_TLS` | No | `false` | Skip TLS certificate validation (not recommended) |
+| `MAX_DAYS` | No | `365` | Only upload DATALOG folders from the last N days (supported range: 1-366) |
+
+#### Upload Flow
+
+The cloud upload follows the SleepHQ import lifecycle:
+
+```
+Session Start
+  ├─ OAuth authenticate (client_id + client_secret)
+  ├─ Discover team_id (if not configured)
+  ├─ Create import session
+  │
+  ├─ For each file:
+  │   ├─ Compute content_hash = MD5(file_content + filename)
+  │   ├─ Multipart POST: name, path, content_hash, file
+  │   └─ Track bytes transferred
+  │
+  └─ Process import (triggers SleepHQ server-side processing)
+```
+
+#### TLS Security
+
+- **Default:** ISRG Root X1 (Let's Encrypt) root CA certificate is embedded in firmware for TLS validation of `sleephq.com`
+- **Insecure fallback:** Set `CLOUD_INSECURE_TLS: true` to disable certificate validation (useful for testing with proxies, not recommended for production)
+- The embedded certificate expires June 4, 2035
+
+#### Content Hash
+
+SleepHQ uses `content_hash` for server-side deduplication. The hash is computed as:
+
+```
+content_hash = MD5(file_content + filename)
+```
+
+Where `filename` is the bare filename without path (e.g., `BRP.edf`).
+
+#### MAX_DAYS Filtering
+
+To limit uploads to recent data only (useful for initial setup with large historical data):
+
+```json
+{
+  "MAX_DAYS": 30
+}
+```
+
+This skips DATALOG folders older than 30 days. The filter compares the folder name (YYYYMMDD format) against the current date minus `MAX_DAYS`. Requires NTP time sync; if time is unavailable, all folders are processed. This setting affects **all backends** (SMB and Cloud).
+
+#### Credential Security
+
+`CLOUD_CLIENT_SECRET` follows the same secure storage pattern as other credentials:
+- Automatically migrated from `config.txt` to ESP32 flash (NVS) on first boot
+- Replaced with `***STORED_IN_FLASH***` in `config.txt`
+- Loaded from NVS on subsequent boots
+- Protected from SD card physical access
+
+#### Memory Impact
+
+Cloud upload adds approximately:
+- **Flash:** +110KB over base (with ISRG Root X1 CA cert)
+- **RAM:** +264 bytes static; upload buffers (4KB) allocated during file transfer
+- **Dual-backend (SMB + Cloud):** Flash ~40%, RAM ~14.9% of available
 
 ---
 
@@ -285,9 +396,11 @@ Edit `platformio.ini` to configure:
 build_flags = 
     -DENABLE_SMB_UPLOAD          ; Enable SMB/CIFS upload
     ; -DENABLE_WEBDAV_UPLOAD     ; Enable WebDAV (TODO)
-    ; -DENABLE_SLEEPHQ_UPLOAD    ; Enable SleepHQ (TODO)
-    -DENABLE_TEST_WEBSERVER      ; Enable test web server
+    ; -DENABLE_SLEEPHQ_UPLOAD    ; Enable Cloud/SleepHQ upload (HTTPS + OAuth)
+    -DENABLE_WEBSERVER      ; Enable web server
 ```
+
+Multiple upload backends can be enabled simultaneously. Use `ENDPOINT_TYPE` in `config.txt` to select active backends at runtime (e.g., `"SMB"`, `"CLOUD"`, or `"SMB,CLOUD"`).
 
 **Logging:**
 ```ini
@@ -299,16 +412,16 @@ build_flags =
 
 **Debug Logging:** By default, `LOG_DEBUG()` and `LOG_DEBUGF()` macros are compiled out (zero overhead). Enable with `-DENABLE_VERBOSE_LOGGING` to see detailed diagnostics including progress updates, state details, and troubleshooting information. Saves ~10-15KB flash and ~35-75ms per upload session when disabled.
 
-**SD Card Logging:** For advanced debugging, logs can be written to SD card by setting `LOG_TO_SD_CARD: true` in `config.json`. 
+**SD Card Logging:** For advanced debugging, logs can be written to SD card by setting `LOG_TO_SD_CARD: true` in `config.txt`. 
 
-⚠️ **WARNING: SD card logging is for debugging only and can cause conflicts when accessing the SD card for CPAP data uploads. Only enable when troubleshooting issues and disable for normal operation.**
+⚠️ **WARNING: SD card logging is for debugging only and can prevent the CPAP machine from reliably accessing the SD card. Only enable it temporarily for troubleshooting, and only when `UPLOAD_MODE` is `"scheduled"` with an upload window outside normal therapy times. Disable it immediately afterward.**
 
 When enabled:
 - Logs are written to `/debug_log.txt` on the SD card
 - All log messages (including serial and buffer logs) are also written to the file
 - File is opened in append mode for each log message
 - If file creation fails, SD logging is automatically disabled
-- Can interfere with CPAP machine SD card access
+- Can interfere with or block CPAP machine SD card access
 
 ### Memory Usage
 
@@ -322,7 +435,7 @@ Current build sizes (with SMB enabled):
 - **Flash:** ~77.8% (1,223,321 / 1,572,864 bytes) - 1.5MB app partition
 - **RAM:** ~14.9% (48,776 / 327,680 bytes) - Static allocation
 
-**Dynamic Memory Analysis:** The `.upload_state.json` file grows with DATALOG folder count (~30 bytes per folder, ~100 bytes per file checksum), and the system now dynamically allocates DynamicJsonDocument buffers sized at 2x the file size for loading and 1.5x estimated size for saving, allowing it to handle thousands of folders limited only by available RAM (~280KB free, supporting ~10+ years of daily CPAP usage before memory exhaustion).
+**Dynamic Memory Analysis:** Upload state now uses v2 line-based snapshots with separate files per backend (`.upload_state.v2.smb`/`.cloud`) plus append-only journals (`.log`) with fixed-size in-memory structures. This avoids large `DynamicJsonDocument` allocations and reduces heap churn/fragmentation during frequent state updates.
 
 ---
 
@@ -339,23 +452,18 @@ pio test -e native
 Run specific test suite:
 ```bash
 pio test -e native -f test_config
-pio test -e native -f test_time_budget_manager
 pio test -e native -f test_schedule_manager
+pio test -e native -f test_upload_state_manager
 ```
 
 ### Test Coverage
 
-Current test results: **154 test cases, all passing**
-
-- `test_time_budget_manager`: 25 tests - Time budget and rate calculation
 - `test_config`: 33 tests - Configuration parsing and validation  
 - `test_credential_migration`: 6 tests - Secure credential storage
-- `test_sd_scan_failure`: 7 tests - SD card error handling
-- `test_webserver`: 9 tests - Web server endpoints
+- `test_logger_circular_buffer`: Logger circular buffer tests
 - `test_native`: 9 tests - Mock infrastructure
 - `test_upload_state_manager`: 42 tests - Upload state tracking
 - `test_schedule_manager`: 22 tests - Scheduling and NTP
-- `test_fileuploader_webserver`: 1 test - Integration testing
 
 ### Hardware Testing
 
@@ -397,10 +505,11 @@ git push origin v0.3.0
 ### Prerequisites
 
 - [ ] SD WIFI PRO dev board connected with SD WIFI PRO inserted
-- [ ] `config.json` created on SD card
+- [ ] `config.txt` created on SD card
 - [ ] WiFi network available
-- [ ] SMB share accessible and writable
-- [ ] internet access (required for NTP server)
+- [ ] SMB share accessible and writable (if using SMB)
+- [ ] SleepHQ API credentials (if using Cloud upload)
+- [ ] Internet access (required for NTP server and Cloud upload)
 
 ### Test Procedure
 
@@ -418,18 +527,29 @@ git push origin v0.3.0
    - [ ] Config loaded successfully
    - [ ] WiFi connected
    - [ ] NTP time synchronized
-   - [ ] SMB connection established
+   - [ ] SMB connection established (if SMB enabled)
+   - [ ] Cloud OAuth authentication successful (if Cloud enabled)
+   - [ ] Team ID discovered or loaded from config (if Cloud enabled)
 
 4. **Test Upload**
-   - [ ] Files uploaded to SMB share
-   - [ ] `.upload_state.json` created on SD card
+   - [ ] Files uploaded to SMB share (if SMB enabled)
+   - [ ] Files uploaded to SleepHQ (if Cloud enabled)
+   - [ ] `.upload_state.v2.smb`/`.cloud` and `.upload_state.v2.smb.log`/`.cloud.log` created on SD card (depending on enabled backends)
    - [ ] No errors in serial output
 
 5. **Test Web Interface** (if enabled)
    - [ ] Access `http://<device-ip>/`, you can get the device IP from the serial port after a reset.
    - [ ] Trigger manual upload
    - [ ] View logs
-   - [ ] Check status
+   - [ ] Check status — verify `cloud_configured` field
+   - [ ] Check config — verify cloud fields (secret should show `***STORED_IN_FLASH***`)
+
+6. **Test Cloud Upload** (if Cloud enabled)
+   - [ ] Verify import created in serial log (`[SleepHQ] Import created: <id>`)
+   - [ ] Verify files uploaded with content hash
+   - [ ] Verify import processed (`[SleepHQ] Import <id> submitted for processing`)
+   - [ ] Check SleepHQ web interface for imported data
+   - [ ] Verify `CLOUD_CLIENT_SECRET` censored in `config.txt` after first boot
 
 ### Common Issues
 
@@ -514,7 +634,7 @@ pio device monitor             # Serial monitor
 The system supports two credential storage modes:
 
 1. **Secure Mode (Default)** - Credentials stored in ESP32 NVS (Non-Volatile Storage)
-2. **Plain Text Mode** - Credentials stored in `config.json` on SD card
+2. **Plain Text Mode** - Credentials stored in `config.txt` on SD card
 
 ### Preferences Library Usage
 
@@ -525,6 +645,7 @@ The system uses the ESP32 Preferences library (a high-level wrapper around NVS) 
 **Stored Credentials:**
 - `wifi_pass` - WiFi password
 - `endpoint_pass` - Endpoint (SMB/WebDAV) password
+- `cloud_secret` - Cloud (SleepHQ) OAuth client secret
 
 **Key Methods:**
 
@@ -559,23 +680,23 @@ void Config::closePreferences() {
 
 When secure mode is enabled (default), the system automatically migrates credentials on first boot:
 
-1. **Detection:** System checks if credentials in `config.json` are censored
+1. **Detection:** System checks if credentials in `config.txt` are censored
 2. **Migration:** If plain text detected, credentials are:
    - Stored in NVS using Preferences library
    - Verified by reading back from NVS
-   - Censored in `config.json` (replaced with `***STORED_IN_FLASH***`)
+   - Censored in `config.txt` (replaced with `***STORED_IN_FLASH***`)
 3. **Subsequent Boots:** Credentials loaded directly from NVS
 
 **Migration Flow:**
 
 ```
-Boot → Load config.json
+Boot → Load config.txt
   ├─ STORE_CREDENTIALS_PLAIN_TEXT = true?
   │    └─ YES → Use plain text (no migration)
   │
   └─ NO/ABSENT → Check if censored
        ├─ YES → Load from NVS
-       └─ NO → Migrate to NVS + Censor config.json
+       └─ NO → Migrate to NVS + Censor config.txt
 ```
 
 ### Error Handling
@@ -583,43 +704,42 @@ Boot → Load config.json
 **Preferences Initialization Failure:**
 - System logs error
 - Falls back to plain text mode
-- Continues operation with credentials from `config.json`
+- Continues operation with credentials from `config.txt`
 
 **NVS Write Failure:**
 - System logs detailed error
 - Keeps credentials in plain text
-- Does not censor `config.json`
+- Does not censor `config.txt`
 
 **NVS Read Failure:**
 - System logs warning
-- Attempts to use `config.json` values
+- Attempts to use `config.txt` values
 - May trigger re-migration if plain text available
 
 ### Web Interface Protection
 
-The TestWebServer component respects credential storage mode:
+The WebServer component respects credential storage mode:
 
 ```cpp
-void TestWebServer::handleConfig() {
-    // Check if credentials are secured
-    if (config->areCredentialsInFlash()) {
-        // Return censored values
-        doc["wifi_password"] = Config::CENSORED_VALUE;
-        doc["endpoint_password"] = Config::CENSORED_VALUE;
-        doc["credentials_secured"] = true;
-    } else {
-        // Return actual values (plain text mode)
-        doc["wifi_password"] = config->wifiPassword;
-        doc["endpoint_password"] = config->endpointPassword;
-        doc["credentials_secured"] = false;
+void CpapWebServer::handleApiConfig() {
+    // ...
+    if (config) {
+        // Check if credentials are stored in secure mode
+        bool credentialsSecured = config->areCredentialsInFlash();
+        
+        json += "\"wifi_ssid\":\"" + escapeJson(config->getWifiSSID()) + "\",";
+        json += "\"wifi_password\":\"***HIDDEN***\",";
+        // ...
+        json += "\"credentials_secured\":" + String(credentialsSecured ? "true" : "false");
     }
+    // ...
 }
 ```
 
 ### Security Considerations
 
 **Protected Against:**
-- Physical SD card access (credentials not in `config.json`)
+- Physical SD card access (credentials not in `config.txt`)
 - Web interface credential exposure (censored in responses)
 - Serial log exposure (credentials never logged)
 
@@ -663,20 +783,20 @@ pio test -e native -f test_config
 
 1. **Test Secure Mode (Default):**
    ```bash
-   # 1. Create config.json with plain text credentials
-   # 2. Set STORE_CREDENTIALS_PLAIN_TEXT to false or omit
+   # 1. Create config.txt with plain text credentials
+   # 2. Set STORE_CREDENTIALS_PLAIN_TEXT = false or omit
    # 3. Flash and boot device
    # 4. Check serial output for migration messages
-   # 5. Verify config.json shows ***STORED_IN_FLASH***
+   # 5. Verify config.txt shows ***STORED_IN_FLASH***
    # 6. Verify WiFi connects and uploads work
    # 7. Check web interface shows censored values
    ```
 
 2. **Test Plain Text Mode:**
    ```bash
-   # 1. Set STORE_CREDENTIALS_PLAIN_TEXT to true
+   # 1. Set STORE_CREDENTIALS_PLAIN_TEXT = true
    # 2. Flash and boot device
-   # 3. Verify credentials remain in config.json
+   # 3. Verify credentials remain in config.txt
    # 4. Verify web interface shows actual values
    ```
 
@@ -706,12 +826,13 @@ pio test -e native -f test_config
 - Acceptable binary footprint (~220-270KB)
 - Active maintenance
 
-### Why Time Budgeting?
+### Why Exclusive Access FSM?
 
-CPAP machines need regular SD card access. Time budgeting ensures:
-- Short upload sessions, default 5 seconds, configurable.
-- CPAP machine gets priority
-- Uploads resume automatically
+CPAP machines need regular SD card access. The FSM-based exclusive access model ensures:
+- SD card bus inactivity is confirmed before taking control
+- Upload time is bounded by configurable exclusive access minutes
+- Cooldown periods between upload cycles give the CPAP machine uninterrupted access
+- Uploads resume automatically across multiple cycles
 
 ### Why Circular Buffer Logging?
 
@@ -726,6 +847,24 @@ CPAP machines need regular SD card access. Time budgeting ensures:
 - Faster compilation
 - Cleaner code separation
 
+### Why Embedded Root CA Certificate?
+
+The SleepHQ cloud uploader embeds the ISRG Root X1 (Let's Encrypt) root CA certificate directly in firmware:
+- Avoids dependency on external certificate stores
+- ESP32 has no system CA bundle by default
+- ISRG Root X1 covers `sleephq.com` and most modern HTTPS sites
+- Certificate expires 2035 — well beyond expected device lifetime
+- Optional `CLOUD_INSECURE_TLS` fallback for development/testing
+
+### Why Import Lifecycle?
+
+SleepHQ requires an import session workflow (create → upload files → process):
+- Server-side deduplication via `content_hash` per file
+- Batch processing after all files are uploaded
+- `content_hash = MD5(file_content + filename)` matches SleepHQ's expected format
+- Import is created at session start and processed at session end
+- If the session ends abnormally, partial uploads are still valid on the server
+
 ---
 
 ## Performance Considerations
@@ -734,7 +873,9 @@ CPAP machines need regular SD card access. Time budgeting ensures:
 
 - Base firmware: ~800KB
 - SMB backend: +220-270KB
+- Cloud/SleepHQ backend: +110KB (includes ISRG Root X1 CA cert)
 - WebDAV backend: +50-80KB (estimated)
+- Dual-backend (SMB + Cloud): ~1,258KB total
 - **Standard build**: 3MB available (huge_app partition)
 - **OTA build**: 1.5MB available per partition
 
@@ -747,10 +888,9 @@ CPAP machines need regular SD card access. Time budgeting ensures:
 
 ### Upload Performance
 
-- Default rate: 40 KB/s (conservative estimate)
 - Actual rate: Varies by network and share, during tests the transfer achieved 130KB/s
-- Rate tracking: Running average of last 5 uploads
-- Adaptive budgeting: Increases on repeated failures
+- Upload time bounded by EXCLUSIVE_ACCESS_MINUTES config parameter
+- Multiple upload cycles separated by COOLDOWN_MINUTES
 
 ---
 

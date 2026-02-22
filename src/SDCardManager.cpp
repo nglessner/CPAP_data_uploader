@@ -7,13 +7,13 @@ SDCardManager::SDCardManager() : initialized(false), espHasControl(false) {}
 
 void SDCardManager::setControlPin(bool espControl) {
     digitalWrite(SD_SWITCH_PIN, espControl ? SD_SWITCH_ESP_VALUE : SD_SWITCH_CPAP_VALUE);
-    delay(100);  // Wait for switch to settle
+    delay(300);  // Wait for MUX switch to settle and CPAP to reinitialize after returning control
 }
 
 bool SDCardManager::begin() {
     // Initialize control pins
     pinMode(SD_SWITCH_PIN, OUTPUT);
-    pinMode(CS_SENSE, INPUT_PULLUP);
+    pinMode(CS_SENSE, INPUT);
     
     // Explicitly release control to CPAP machine on boot
     // This ensures the CPAP machine has access to the SD card immediately
@@ -32,11 +32,8 @@ bool SDCardManager::takeControl() {
         return true;  // Already have control
     }
 
-    // Check if CPAP machine is using SD card
-    if (digitalRead(CS_SENSE) == LOW) {
-        LOG("CPAP machine is using SD card, waiting...");
-        return false;
-    }
+    // Activity detection is handled by TrafficMonitor + FSM BEFORE this call.
+    // By the time takeControl() is called, the FSM has already confirmed bus silence.
 
     // Take control of SD card
     setControlPin(true);

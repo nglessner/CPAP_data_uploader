@@ -26,26 +26,45 @@ enum class WifiPowerSaving {
 
 class Config {
 public:
-    // JSON buffer size constant (public for testing)
-    static const size_t JSON_FILE_MAX_SIZE = 4096;
+    // Max line length for config file
+    static const size_t MAX_LINE_LENGTH = 256;
 
 private:
     String wifiSSID;
     String wifiPassword;
+    String hostname;  // mDNS hostname (defaults to "cpap")
     String schedule;
     String endpoint;
-    String endpointType;  // SMB, WEBDAV, SLEEPHQ
+    String endpointType;  // SMB, CLOUD, SMB,CLOUD
     String endpointUser;
     String endpointPassword;
-    int uploadHour;
-    int sessionDurationSeconds;
-    int maxRetryAttempts;
     int gmtOffsetHours;
-    int bootDelaySeconds;
-    int sdReleaseIntervalSeconds;
-    int sdReleaseWaitMs;
     bool logToSdCard;
+    bool debugMode;
     bool isValid;
+    
+    // Cloud upload settings
+    String cloudClientId;
+    String cloudClientSecret;
+    String cloudTeamId;
+    String cloudBaseUrl;
+    int cloudDeviceId;
+    int maxDays;
+    int recentFolderDays;
+    bool cloudInsecureTls;
+    
+    // Upload FSM settings
+    String uploadMode;             // "scheduled" or "smart"
+    int uploadStartHour;           // 0-23, start of upload window
+    int uploadEndHour;             // 0-23, end of upload window
+    int inactivitySeconds;         // Z: seconds of bus silence before upload
+    int exclusiveAccessMinutes;    // X: max minutes of exclusive SD access
+    int cooldownMinutes;           // Y: minutes to release SD between upload cycles
+    
+    // Cached endpoint type flags (computed once during loadFromSD)
+    bool _hasSmbEndpoint;
+    bool _hasCloudEndpoint;
+    bool _hasWebdavEndpoint;
     
     // Power management settings
     int cpuSpeedMhz;
@@ -63,6 +82,7 @@ private:
     static const char* PREFS_NAMESPACE;
     static const char* PREFS_KEY_WIFI_PASS;
     static const char* PREFS_KEY_ENDPOINT_PASS;
+    static const char* PREFS_KEY_CLOUD_SECRET;
     static const char* CENSORED_VALUE;
     
     // Preferences initialization and cleanup methods
@@ -74,15 +94,16 @@ private:
     String loadCredential(const char* key, const String& defaultValue);
     bool isCensored(const String& value);
     
-    // Config file censoring method (forward declaration for JsonDocument)
-    template<typename T>
-    bool censorConfigFileWithDoc(fs::FS &sd, T& doc);
+    // Config file censoring method
     bool censorConfigFile(fs::FS &sd);
     
-    // Credential migration method (takes existing JSON doc to avoid double allocation)
-    template<typename T>
-    bool migrateToSecureStorageWithDoc(fs::FS &sd, T& doc);
+    // Credential migration method
     bool migrateToSecureStorage(fs::FS &sd);
+
+    // Parsing helpers
+    void parseLine(String& line);
+    void setConfigValue(String key, String value);
+    String trimComment(String line);
 
 public:
     Config();
@@ -92,20 +113,38 @@ public:
     
     const String& getWifiSSID() const;
     const String& getWifiPassword() const;
+    const String& getHostname() const;
     const String& getSchedule() const;
     const String& getEndpoint() const;
     const String& getEndpointType() const;
     const String& getEndpointUser() const;
     const String& getEndpointPassword() const;
-    int getUploadHour() const;
-    int getSessionDurationSeconds() const;
-    int getMaxRetryAttempts() const;
     int getGmtOffsetHours() const;
-    int getBootDelaySeconds() const;
-    int getSdReleaseIntervalSeconds() const;
-    int getSdReleaseWaitMs() const;
     bool getLogToSdCard() const;
+    bool getDebugMode() const;
     bool valid() const;
+    
+    // Cloud upload getters
+    const String& getCloudClientId() const;
+    const String& getCloudClientSecret() const;
+    const String& getCloudTeamId() const;
+    const String& getCloudBaseUrl() const;
+    int getCloudDeviceId() const;
+    int getMaxDays() const;
+    int getRecentFolderDays() const;
+    bool getCloudInsecureTls() const;
+    bool hasCloudEndpoint() const;
+    bool hasSmbEndpoint() const;
+    bool hasWebdavEndpoint() const;
+    
+    // Upload FSM getters
+    const String& getUploadMode() const;
+    int getUploadStartHour() const;
+    int getUploadEndHour() const;
+    int getInactivitySeconds() const;
+    int getExclusiveAccessMinutes() const;
+    int getCooldownMinutes() const;
+    bool isSmartMode() const;
     
     // Power management getters
     int getCpuSpeedMhz() const;

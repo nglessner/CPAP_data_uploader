@@ -25,14 +25,12 @@ Enables SMB/CIFS upload support for Windows shares, NAS devices, and Samba serve
 - libsmb2 library must be cloned into `components/libsmb2`
 - See [LIBSMB2_SETUP.md](LIBSMB2_SETUP.md) for setup instructions
 
-**Usage in config.json**:
-```json
-{
-  "ENDPOINT_TYPE": "SMB",
-  "ENDPOINT": "//192.168.1.100/cpap_backups",
-  "ENDPOINT_USER": "username",
-  "ENDPOINT_PASS": "password"
-}
+**Usage in config.txt**:
+```ini
+ENDPOINT_TYPE = SMB
+ENDPOINT = //192.168.1.100/cpap_backups
+ENDPOINT_USER = username
+ENDPOINT_PASSWORD = password
 ```
 
 ### ENABLE_WEBDAV_UPLOAD
@@ -43,33 +41,30 @@ Enables WebDAV upload support for Nextcloud, ownCloud, and standard WebDAV serve
 
 **Binary Size Impact**: +50-80KB (estimated, uses HTTPClient)
 
-**Usage in config.json**:
-```json
-{
-  "ENDPOINT_TYPE": "WEBDAV",
-  "ENDPOINT": "https://cloud.example.com/remote.php/dav/files/user/cpap",
-  "ENDPOINT_USER": "username",
-  "ENDPOINT_PASS": "password"
-}
+**Usage in config.txt**:
+```ini
+ENDPOINT_TYPE = WEBDAV
+ENDPOINT = https://cloud.example.com/remote.php/dav/files/user/cpap
+ENDPOINT_USER = username
+ENDPOINT_PASSWORD = password
 ```
 
 ### ENABLE_SLEEPHQ_UPLOAD
 
-Enables direct upload to SleepHQ cloud service for CPAP data analysis.
+Enables direct upload to SleepHQ cloud service via REST API with OAuth authentication.
 
-**Status**: TODO - Placeholder implementation only
+**Status**: Implemented
 
-**Binary Size Impact**: +40-60KB (estimated, uses HTTPClient + JSON)
+**Binary Size Impact**: +110KB (includes ISRG Root X1 CA cert for TLS)
 
-**Usage in config.json**:
-```json
-{
-  "ENDPOINT_TYPE": "SLEEPHQ",
-  "ENDPOINT": "https://api.sleephq.com/v1/upload",
-  "ENDPOINT_USER": "user_id",
-  "ENDPOINT_PASS": "api_key"
-}
+**Usage in config.txt**:
+```ini
+ENDPOINT_TYPE = CLOUD
+CLOUD_CLIENT_ID = your-sleephq-client-id
+CLOUD_CLIENT_SECRET = your-sleephq-client-secret
 ```
+
+Can also be combined with SMB: `ENDPOINT_TYPE = SMB,CLOUD`
 
 ## How to Enable/Disable Backends
 
@@ -83,7 +78,7 @@ build_flags =
     -Icomponents/libsmb2/include
     -DENABLE_SMB_UPLOAD          ; Enable SMB/CIFS upload support
     ; -DENABLE_WEBDAV_UPLOAD     ; Enable WebDAV upload support (TODO)
-    ; -DENABLE_SLEEPHQ_UPLOAD    ; Enable SleepHQ direct upload (TODO)
+    ; -DENABLE_SLEEPHQ_UPLOAD    ; Enable SleepHQ cloud upload (HTTPS + OAuth)
 ```
 
 ### Method 2: Command Line Override
@@ -100,12 +95,12 @@ pio run -e pico32 --build-flag="-DENABLE_SMB_UPLOAD" --build-flag="-DENABLE_WEBD
 
 ## Runtime Backend Selection
 
-When multiple backends are enabled at compile time, the active backend is selected at runtime based on the `ENDPOINT_TYPE` setting in `config.json`.
+When multiple backends are enabled at compile time, the active backend is selected at runtime based on the `ENDPOINT_TYPE` setting in `config.txt`.
 
 **Example**: If both SMB and WebDAV are enabled:
-- Set `ENDPOINT_TYPE: "SMB"` to use SMB upload
-- Set `ENDPOINT_TYPE: "WEBDAV"` to use WebDAV upload
-- Change `config.json` and reboot to switch backends
+- Set `ENDPOINT_TYPE = SMB` to use SMB upload
+- Set `ENDPOINT_TYPE = WEBDAV` to use WebDAV upload
+- Change `config.txt` and reboot to switch backends
 
 ## Implementation Details
 
@@ -131,7 +126,7 @@ The feature flags use C preprocessor directives to conditionally include code:
 
 The `FileUploader` class automatically selects the appropriate uploader based on:
 1. Which backends are enabled at compile time (feature flags)
-2. The `ENDPOINT_TYPE` setting in `config.json`
+2. The `ENDPOINT_TYPE` setting in `config.txt`
 
 If the requested backend is not enabled at compile time, an error message is displayed with instructions on which flag to enable.
 
@@ -154,8 +149,8 @@ If you configure an endpoint type that wasn't compiled in:
 | No backends | Base size |
 | SMB only | Base + 220-270KB |
 | WebDAV only | Base + 50-80KB (est.) |
-| SleepHQ only | Base + 40-60KB (est.) |
-| All backends | Base + 310-410KB (est.) |
+| SleepHQ only | Base + 110KB |
+| All backends | Base + 330-380KB |
 
 **Recommendation**: Enable only the backend(s) you need to maximize available flash space for future features.
 
