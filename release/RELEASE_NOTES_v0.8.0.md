@@ -14,7 +14,7 @@
 **Steps to migrate:**
 1. ❌ Delete or rename your old `config.json`
 2. ✅ Create a new `config.txt` file in the root of your SD card
-3. ✅ Use the Key-Value format: `SETTING_NAME = value` (one per line)
+3. ✅ Copy your settings manually using the Key-Value format: `SETTING_NAME = value` (one per line)
 4. ✅ See configuration examples in the package (`config.txt.example*`)
 
 **Example conversion:**
@@ -163,10 +163,11 @@ CLOUD_CLIENT_SECRET = your-client-secret
 
 2. **Flash v0.8.0 firmware** using the included upload scripts
 
-3. **Create new `config.txt`** on your SD card
-   - Use one of the provided templates as a starting point
-   - Copy your settings from old `config.json` to new `config.txt`
-   - Follow the Key-Value format: `SETTING_NAME = value`
+3. **Create new configuration**
+   - Use one of the provided templates as a starting point (`config.txt.example*`)
+   - Copy your settings manually from old `config.json` to new `config.txt`
+   - Follow the Key-Value format: `SETTING_NAME = value` (one per line)
+   - Delete or rename your old `config.json`
 
 4. **Insert SD card** and power on
    - Device will automatically detect and use `config.txt`

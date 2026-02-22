@@ -222,7 +222,7 @@ function tab(t){
   });
   curTab=t;
   if(t==='logs'){startLogPoll();}else{stopLogPoll();}
-  if(t==='mon'){startMon();}else{stopMon();}
+  if(t!=='mon'){stopMon();}
   if(t==='cfg'){loadCfg();}
 }
 function toast(msg,mode){

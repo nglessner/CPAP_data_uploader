@@ -888,9 +888,10 @@ This software interacts directly with medical device hardware and file systems. 
 The configuration format changed from `config.json` (JSON) to `config.txt` (key-value, one setting per line).
 
 Your existing `config.json` **will not** work. You must create a new `config.txt`:
+
 1. Delete or rename your old `config.json`
-2. Create `config.txt` using the examples in this package (`config.txt.example*`)
-3. Format: `SETTING_NAME = value` (one setting per line)
+2. Create a new `config.txt` using the examples in this package (`config.txt.example*`)
+3. Copy your settings manually using the format: `SETTING_NAME = value` (one setting per line)
 
 The new format is simpler and has no JSON syntax to get wrong.
 </details>
