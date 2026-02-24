@@ -90,16 +90,51 @@ namespace fs {
     class FS {};
 }
 
-// Mock Serial
-class MockSerial {
+// Mock Print base class
+class Print {
 public:
+    virtual size_t write(uint8_t) = 0;
+    virtual size_t write(const uint8_t *buffer, size_t size) {
+        size_t n = 0;
+        while (size--) {
+            n += write(*buffer++);
+        }
+        return n;
+    }
+    
+    size_t print(const char* str) {
+        return write((const uint8_t*)str, strlen(str));
+    }
+    
+    size_t println(const char* str) {
+        size_t n = print(str);
+        n += write('\n');
+        return n;
+    }
+    
+    virtual ~Print() {}
+};
+
+// Mock Serial
+class MockSerial : public Print {
+public:
+    size_t write(uint8_t c) override {
+        return 1;
+    }
+    
+    size_t write(const uint8_t* buffer, size_t size) override {
+        return size;
+    }
+    
     void println(const char* str) { (void)str; }
     void println(const String& str) { (void)str; }
-    void write(const uint8_t* buffer, size_t size) { (void)buffer; (void)size; }
     void write(char c) { (void)c; }
 };
 
 MockSerial Serial;
+
+// Mock yield function
+void yield() {}
 
 // Forward declare SDCardManager (not used in tests)
 class SDCardManager;

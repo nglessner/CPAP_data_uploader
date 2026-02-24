@@ -5,6 +5,9 @@
 // Include mock implementations
 #include "../mocks/Arduino.cpp"
 
+// Mock global variable from main.cpp
+bool g_heapRecoveryBoot = false;
+
 // Mock ESP32-specific time functions
 static bool mockNtpSyncSuccess = true;
 static long mockGmtOffsetSeconds = 0;
@@ -263,7 +266,7 @@ void test_schedule_window_current_day() {
 
 void test_schedule_window_next_day() {
     ScheduleManager manager;
-    manager.begin(15, 0);  // Upload at 3 PM
+    manager.begin("scheduled", 15, 15, 0);  // Upload at 3 PM (single hour window)
     
     // Set time to 4:00 PM (after upload hour)
     time_t currentTime = makeTimestamp(2025, 11, 14, 16, 0, 0);

@@ -95,7 +95,7 @@ void test_config_load_with_defaults() {
     TEST_ASSERT_EQUAL_STRING("smart", config.getUploadMode().c_str());
     TEST_ASSERT_EQUAL(9, config.getUploadStartHour());
     TEST_ASSERT_EQUAL(21, config.getUploadEndHour());
-    TEST_ASSERT_EQUAL(125, config.getInactivitySeconds());
+    TEST_ASSERT_EQUAL(62, config.getInactivitySeconds());
     TEST_ASSERT_EQUAL(5, config.getExclusiveAccessMinutes());
     TEST_ASSERT_EQUAL(10, config.getCooldownMinutes());
     TEST_ASSERT_EQUAL(0, config.getGmtOffsetHours());  // Default UTC

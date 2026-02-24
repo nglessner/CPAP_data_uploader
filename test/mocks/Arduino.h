@@ -51,9 +51,51 @@ typedef uint8_t byte;
 
 #define bit(b) (1UL << (b))
 
-// Mock Serial for logging in tests
-class MockSerial {
+// Mock Print base class (for Logger compatibility)
+class Print {
 public:
+    virtual size_t write(uint8_t) = 0;
+    virtual size_t write(const uint8_t *buffer, size_t size) {
+        size_t n = 0;
+        while (size--) {
+            n += write(*buffer++);
+        }
+        return n;
+    }
+    
+    size_t print(const char* str) {
+        return write((const uint8_t*)str, strlen(str));
+    }
+    
+    size_t print(const String& str) {
+        return print(str.c_str());
+    }
+    
+    size_t println(const char* str) {
+        size_t n = print(str);
+        n += write('\n');
+        return n;
+    }
+    
+    size_t println(const String& str) {
+        return println(str.c_str());
+    }
+    
+    size_t println() {
+        return write('\n');
+    }
+    
+    virtual ~Print() {}
+};
+
+// Mock Serial for logging in tests
+class MockSerial : public Print {
+public:
+    size_t write(uint8_t c) override {
+        putchar(c);
+        return 1;
+    }
+    
     void begin(unsigned long baud) {
         // No-op in tests
     }

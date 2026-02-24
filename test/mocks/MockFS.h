@@ -103,6 +103,50 @@ public:
         }
     }
     
+    // Trim whitespace from both ends
+    void trim() {
+        // Trim from start
+        size_t start = 0;
+        while (start < data.length() && std::isspace(data[start])) {
+            start++;
+        }
+        // Trim from end
+        size_t end = data.length();
+        while (end > start && std::isspace(data[end - 1])) {
+            end--;
+        }
+        data = data.substr(start, end - start);
+    }
+    
+    // Get character at position
+    char charAt(size_t index) const {
+        return index < data.length() ? data[index] : '\0';
+    }
+    
+    // Convert to integer
+    int toInt() const {
+        try {
+            return std::stoi(data);
+        } catch (...) {
+            return 0;
+        }
+    }
+    
+    // Case-insensitive comparison
+    bool equalsIgnoreCase(const String& other) const {
+        if (data.length() != other.data.length()) return false;
+        for (size_t i = 0; i < data.length(); i++) {
+            if (std::tolower(data[i]) != std::tolower(other.data[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    bool equalsIgnoreCase(const char* str) const {
+        return equalsIgnoreCase(String(str));
+    }
+    
     // For std::map compatibility
     std::string toStdString() const { return data; }
 };
@@ -349,6 +393,22 @@ public:
         return written;
     }
     
+    size_t println(const String& str) {
+        return println(str.c_str());
+    }
+    
+    String readStringUntil(char terminator) {
+        std::string result;
+        while (isOpen && filePosition < content.size()) {
+            char c = content[filePosition++];
+            if (c == terminator) {
+                break;
+            }
+            result += c;
+        }
+        return String(result.c_str());
+    }
+    
     bool seek(size_t pos) {
         if (pos <= content.size()) {
             filePosition = pos;
@@ -387,6 +447,9 @@ namespace fs {
     typedef MockFS FS;
     typedef MockFile File;
 }
+
+// Also provide File in global namespace for compatibility
+typedef MockFile File;
 
 // File mode constants
 #define FILE_READ "r"
