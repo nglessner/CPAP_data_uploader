@@ -199,13 +199,28 @@ bool CpapWebServer::begin() {
     
     LOG("[WebServer] Web server started successfully");
     LOG("[WebServer] Available endpoints:");
-    LOG("[WebServer]   GET /              - Status page (HTML)");
-    LOG("[WebServer]   GET /trigger-upload - Force immediate upload");
-    LOG("[WebServer]   GET /status        - Status information (JSON)");
-    LOG("[WebServer]   GET /reset-state   - Clear upload state");
-    LOG("[WebServer]   GET /config        - Display configuration");
-    LOG("[WebServer]   GET /logs          - Retrieve system logs (JSON)");
-    LOG("[WebServer]   GET /monitor       - SD Activity Monitor (live)");
+    LOG("[WebServer]   GET  /                  - Dashboard (HTML SPA)");
+    LOG("[WebServer]   GET  /trigger-upload    - Force immediate upload");
+    LOG("[WebServer]   GET  /status            - Status page (HTML)");
+    LOG("[WebServer]   GET  /config            - Config page (HTML)");
+    LOG("[WebServer]   GET  /logs              - Logs page (HTML)");
+    LOG("[WebServer]   GET  /monitor           - SD Activity Monitor page (HTML)");
+    LOG("[WebServer]   GET  /api/status        - Status information (JSON)");
+    LOG("[WebServer]   GET  /api/config        - Configuration snapshot (JSON)");
+    LOG("[WebServer]   GET  /api/logs          - System logs (text/plain)");
+    LOG("[WebServer]   GET  /api/config-raw    - Raw config.txt content (text/plain)");
+    LOG("[WebServer]   POST /api/config-raw    - Update config.txt (text/plain body)");
+    LOG("[WebServer]   POST /api/config-lock   - Acquire/release config edit lock (JSON)");
+    LOG("[WebServer]   GET  /api/monitor-start - Start SD activity monitoring");
+    LOG("[WebServer]   GET  /api/monitor-stop  - Stop SD activity monitoring");
+    LOG("[WebServer]   GET  /api/sd-activity   - SD activity data (JSON)");
+    LOG("[WebServer]   GET  /reset-state       - Clear upload state");
+    LOG("[WebServer]   GET  /soft-reboot       - Reboot device (skip cold-boot delays)");
+#ifdef ENABLE_OTA_UPDATES
+    LOG("[WebServer]   GET  /ota               - OTA update page (HTML)");
+    LOG("[WebServer]   POST /ota-upload        - Upload firmware file");
+    LOG("[WebServer]   POST /ota-url           - Download firmware from URL");
+#endif
     
     return true;
 }

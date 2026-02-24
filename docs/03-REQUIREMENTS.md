@@ -37,26 +37,24 @@ Unsupported legacy keys:
 
 ### 1.4 Example config.txt
 
-```json
-{
-  "WIFI_SSID": "MyNetwork",
-  "WIFI_PASS": "********",
-  "ENDPOINT": "smb://nas/cpap_data",
-  "ENDPOINT_TYPE": "SMB",
-  "ENDPOINT_USER": "cpap",
-  "ENDPOINT_PASS": "********",
+```ini
+WIFI_SSID = MyNetwork
+WIFI_PASSWORD = ********
+ENDPOINT = //nas/cpap_data
+ENDPOINT_TYPE = SMB
+ENDPOINT_USER = cpap
+ENDPOINT_PASSWORD = ********
 
-  "UPLOAD_MODE": "smart",
-  "UPLOAD_START_HOUR": 8,
-  "UPLOAD_END_HOUR": 22,
-  "INACTIVITY_SECONDS": 125,
-  "EXCLUSIVE_ACCESS_MINUTES": 5,
-  "COOLDOWN_MINUTES": 10,
-  "RECENT_FOLDER_DAYS": 2,
-  "MAX_DAYS": 30,
+UPLOAD_MODE = smart
+UPLOAD_START_HOUR = 8
+UPLOAD_END_HOUR = 22
+INACTIVITY_SECONDS = 125
+EXCLUSIVE_ACCESS_MINUTES = 5
+COOLDOWN_MINUTES = 10
+RECENT_FOLDER_DAYS = 2
+MAX_DAYS = 30
 
-  "GMT_OFFSET_HOURS": 11
-}
+GMT_OFFSET_HOURS = 11
 ```
 
 ---

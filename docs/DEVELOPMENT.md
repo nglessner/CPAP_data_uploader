@@ -208,33 +208,29 @@ The system supports direct upload to SleepHQ cloud service via REST API. This ca
 
 #### Cloud-Only Configuration
 
-```json
-{
-  "WIFI_SSID": "MyNetwork",
-  "WIFI_PASS": "wifi_password",
-  "ENDPOINT_TYPE": "CLOUD",
-  "CLOUD_CLIENT_ID": "your-sleephq-client-id",
-  "CLOUD_CLIENT_SECRET": "your-sleephq-client-secret",
-  "GMT_OFFSET_HOURS": -8
-}
+```ini
+WIFI_SSID = MyNetwork
+WIFI_PASSWORD = wifi_password
+ENDPOINT_TYPE = CLOUD
+CLOUD_CLIENT_ID = your-sleephq-client-id
+CLOUD_CLIENT_SECRET = your-sleephq-client-secret
+GMT_OFFSET_HOURS = -8
 ```
 
 #### Dual-Backend Configuration (SMB + Cloud)
 
 Upload to both a local NAS and SleepHQ simultaneously:
 
-```json
-{
-  "WIFI_SSID": "MyNetwork",
-  "WIFI_PASS": "wifi_password",
-  "ENDPOINT": "//192.168.1.100/share/cpap",
-  "ENDPOINT_TYPE": "SMB,CLOUD",
-  "ENDPOINT_USER": "smbuser",
-  "ENDPOINT_PASS": "smbpass",
-  "CLOUD_CLIENT_ID": "your-sleephq-client-id",
-  "CLOUD_CLIENT_SECRET": "your-sleephq-client-secret",
-  "GMT_OFFSET_HOURS": -8
-}
+```ini
+WIFI_SSID = MyNetwork
+WIFI_PASSWORD = wifi_password
+ENDPOINT = //192.168.1.100/share/cpap
+ENDPOINT_TYPE = SMB,CLOUD
+ENDPOINT_USER = smbuser
+ENDPOINT_PASSWORD = smbpass
+CLOUD_CLIENT_ID = your-sleephq-client-id
+CLOUD_CLIENT_SECRET = your-sleephq-client-secret
+GMT_OFFSET_HOURS = -8
 ```
 
 #### Cloud Configuration Fields
@@ -287,10 +283,8 @@ Where `filename` is the bare filename without path (e.g., `BRP.edf`).
 
 To limit uploads to recent data only (useful for initial setup with large historical data):
 
-```json
-{
-  "MAX_DAYS": 30
-}
+```ini
+MAX_DAYS = 30
 ```
 
 This skips DATALOG folders older than 30 days. The filter compares the folder name (YYYYMMDD format) against the current date minus `MAX_DAYS`. Requires NTP time sync; if time is unavailable, all folders are processed. This setting affects **all backends** (SMB and Cloud).
