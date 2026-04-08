@@ -240,8 +240,8 @@ void setup() {
     } else {
         // Cold boot: wait for power-rail stabilization and CPAP boot sequence to settle,
         // then wait for SD bus silence before attempting to take SD card control.
-        LOG("Waiting 15s for electrical stabilization...");
-        delay(15000);
+        LOG("Waiting 30s for electrical stabilization...");
+        delay(30000);
         runSmartWait();
     }
     

@@ -13,8 +13,10 @@ NC='\033[0m'
 RELEASE_DIR="release"
 BUILD_DIR_STANDARD=".pio/build/pico32"
 BUILD_DIR_OTA=".pio/build/pico32-ota"
+BUILD_DIR_NOWEB=".pio/build/pico32-no-webserver"
 FIRMWARE_BIN_STANDARD="$BUILD_DIR_STANDARD/firmware.bin"
 FIRMWARE_BIN_OTA="$BUILD_DIR_OTA/firmware.bin"
+FIRMWARE_BIN_NOWEB="$BUILD_DIR_NOWEB/firmware.bin"
 
 # Get version from git tag (latest tag on current commit)
 GIT_TAG=$(git describe --tags --exact-match 2>/dev/null || echo "")
@@ -71,6 +73,13 @@ if ! pio run -e pico32-ota; then
     exit 1
 fi
 
+# Build no-webserver firmware
+echo "Building no-webserver firmware (pico32-no-webserver)..."
+if ! pio run -e pico32-no-webserver; then
+    echo -e "${RED}Failed to build no-webserver firmware${NC}"
+    exit 1
+fi
+
 # Check if firmware files exist
 if [ ! -f "$FIRMWARE_BIN_STANDARD" ]; then
     echo -e "${RED}Standard firmware not found: $FIRMWARE_BIN_STANDARD${NC}"
@@ -79,6 +88,11 @@ fi
 
 if [ ! -f "$FIRMWARE_BIN_OTA" ]; then
     echo -e "${RED}OTA firmware not found: $FIRMWARE_BIN_OTA${NC}"
+    exit 1
+fi
+
+if [ ! -f "$FIRMWARE_BIN_NOWEB" ]; then
+    echo -e "${RED}No-webserver firmware not found: $FIRMWARE_BIN_NOWEB${NC}"
     exit 1
 fi
 
@@ -108,6 +122,13 @@ python -m esptool --chip esp32 merge-bin \
     0x8000 "$BUILD_DIR_STANDARD/partitions.bin" \
     0x10000 "$FIRMWARE_BIN_STANDARD"
 
+python -m esptool --chip esp32 merge-bin \
+    -o "$TEMP_DIR/firmware-no-webserver.bin" \
+    --flash-mode dio --flash-freq 40m --flash-size 4MB \
+    0x1000 "$BUILD_DIR_NOWEB/bootloader.bin" \
+    0x8000 "$BUILD_DIR_NOWEB/partitions.bin" \
+    0x10000 "$FIRMWARE_BIN_NOWEB"
+
 # Copy app-only OTA upgrade binary
 cp "$FIRMWARE_BIN_OTA" "$TEMP_DIR/firmware-ota-upgrade.bin"
 
@@ -116,6 +137,7 @@ echo "Keeping firmware copies in release folder..."
 cp "$TEMP_DIR/firmware-ota.bin" "$RELEASE_DIR/firmware-ota-${VERSION}.bin"
 cp "$TEMP_DIR/firmware-standard.bin" "$RELEASE_DIR/firmware-standard-${VERSION}.bin"
 cp "$TEMP_DIR/firmware-ota-upgrade.bin" "$RELEASE_DIR/firmware-ota-upgrade-${VERSION}.bin"
+cp "$TEMP_DIR/firmware-no-webserver.bin" "$RELEASE_DIR/firmware-no-webserver-${VERSION}.bin"
 
 # Copy upload scripts
 echo "Copying upload tools..."
@@ -151,11 +173,13 @@ echo -e "${GREEN}Release package created: $RELEASE_DIR/$RELEASE_PACKAGE${NC}"
 echo -e "${GREEN}Firmware copies saved in release folder:${NC}"
 echo "  - firmware-ota-${VERSION}.bin (OTA-enabled with web updates)"
 echo "  - firmware-standard-${VERSION}.bin (standard firmware, 3MB app space)"
+echo "  - firmware-no-webserver-${VERSION}.bin (headless, no web server)"
 echo ""
 echo "Package contents:"
 echo "  - firmware-ota.bin (complete OTA firmware for initial flashing)"
 echo "  - firmware-ota-upgrade.bin (app-only for OTA web updates)"
 echo "  - firmware-standard.bin (complete standard firmware, can be re-flashed)"
+echo "  - firmware-no-webserver.bin (headless firmware, no web interface)"
 echo "  - upload.sh (macOS/Linux upload script)"
 echo "  - upload-ota.bat (Windows OTA firmware upload script)"
 echo "  - upload-standard.bat (Windows standard firmware upload script)"
@@ -169,6 +193,7 @@ echo -e "${GREEN}Firmware sizes:${NC}"
 echo "  OTA merged:       $(du -h "$RELEASE_DIR/firmware-ota-${VERSION}.bin" | cut -f1) (complete, for initial flash)"
 echo "  OTA upgrade:      $(du -h "$RELEASE_DIR/firmware-ota-upgrade-${VERSION}.bin" | cut -f1) (app-only, for web updates)"
 echo "  Standard merged:  $(du -h "$RELEASE_DIR/firmware-standard-${VERSION}.bin" | cut -f1) (complete, can be re-flashed)"
+echo "  No-webserver:     $(du -h "$RELEASE_DIR/firmware-no-webserver-${VERSION}.bin" | cut -f1) (headless, no web interface)"
 echo ""
 echo -e "${YELLOW}Next steps for GitHub release:${NC}"
 echo "1. Upload the release package: $RELEASE_DIR/$RELEASE_PACKAGE"
@@ -176,3 +201,4 @@ echo "2. Upload individual firmware files from release/ folder:"
 echo "   - firmware-ota-${VERSION}.bin (for initial flashing)" 
 echo "   - firmware-ota-upgrade-${VERSION}.bin (for OTA web updates)"
 echo "   - firmware-standard-${VERSION}.bin (for initial/re-flashing)"
+echo "   - firmware-no-webserver-${VERSION}.bin (headless, no web interface)"

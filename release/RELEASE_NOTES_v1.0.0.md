@@ -28,6 +28,13 @@ This is the first stable release of the CPAP Data Uploader firmware. The v1.0 mi
 - **OTA Updates:** Firmware updates over WiFi
 - **SD Activity Monitor:** Real-time bus activity visualization
 
+### Headless (No Web Server) Build
+- **Smaller binary:** Reduced flash and RAM footprint
+- **Autonomous operation:** Fully configured via config.txt, no web interface supported
+- **Ideal for set-and-forget:** No OTA, no dashboard — just reliable uploads
+- DRAWBACK: harder to debug issues. only use it as an upgrade from an existing setup. please notice you will have to setup your credentials as the credentials will be sanitized in the config file.
+- NOT RECOMMENDED UNLESS YOU ARE A POWER USER WHO CAN DEBUG THE ISSUES YOURSELF.
+
 ### Power Management
 - **Configurable CPU Speed:** 80/160/240 MHz options
 - **WiFi Power Control:** Adjustable transmit power and power saving modes
@@ -37,10 +44,11 @@ This is the first stable release of the CPAP Data Uploader firmware. The v1.0 mi
 
 ## 📦 What's Included
 
-### Firmware Binaries
-- `firmware.bin` - Main application firmware
-- `bootloader.bin` - ESP32 bootloader
-- `partitions.bin` - Partition table
+### Firmware Variants
+- `firmware-ota.bin` - OTA-enabled firmware with web interface (for initial flashing)
+- `firmware-ota-upgrade.bin` - App-only binary for OTA web updates
+- `firmware-standard.bin` - Standard firmware with web interface, 3MB app space
+- `firmware-no-webserver.bin` - Headless firmware without web server (smaller binary, lower RAM usage, set-and-forget)
 
 ### Configuration Examples
 - `config.txt.example.simple` - Minimal configuration (6-10 lines)
