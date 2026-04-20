@@ -16,6 +16,7 @@ private:
 public:
     String() : data("") {}
     String(const char* str) : data(str ? str : "") {}
+    String(const char* str, unsigned int len) : data(str ? std::string(str, len) : "") {}
     String(const std::string& str) : data(str) {}
     String(int num) : data(std::to_string(num)) {}
     String(unsigned long num) : data(std::to_string(num)) {}
@@ -58,14 +59,29 @@ public:
         size_t pos = data.find(ch);
         return pos != std::string::npos ? static_cast<int>(pos) : -1;
     }
-    
+
+    int indexOf(char ch, size_t from) const {
+        size_t pos = data.find(ch, from);
+        return pos != std::string::npos ? static_cast<int>(pos) : -1;
+    }
+
     int indexOf(const char* str) const {
         size_t pos = data.find(str);
         return pos != std::string::npos ? static_cast<int>(pos) : -1;
     }
-    
+
+    int indexOf(const char* str, size_t from) const {
+        size_t pos = data.find(str, from);
+        return pos != std::string::npos ? static_cast<int>(pos) : -1;
+    }
+
     int indexOf(const String& str) const {
         size_t pos = data.find(str.data);
+        return pos != std::string::npos ? static_cast<int>(pos) : -1;
+    }
+
+    int indexOf(const String& str, size_t from) const {
+        size_t pos = data.find(str.data, from);
         return pos != std::string::npos ? static_cast<int>(pos) : -1;
     }
     
