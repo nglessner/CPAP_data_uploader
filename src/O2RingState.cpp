@@ -43,3 +43,17 @@ bool O2RingState::hasSeen(const String& filename) const {
 void O2RingState::markSeen(const String& filename) {
     seen.insert(filename);
 }
+
+void O2RingState::retainOnly(const std::vector<String>& keep) {
+    for (auto it = seen.begin(); it != seen.end(); ) {
+        bool inKeep = false;
+        for (const auto& k : keep) {
+            if (k == *it) { inKeep = true; break; }
+        }
+        if (!inKeep) {
+            it = seen.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
