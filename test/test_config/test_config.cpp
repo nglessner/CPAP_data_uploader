@@ -892,7 +892,7 @@ void test_config_power_management_defaults() {
 
 // Test power management configuration with custom values
 void test_config_power_management_custom() {
-    std::string configContent = 
+    std::string configContent =
         "WIFI_SSID = TestNetwork\n"
         "WIFI_PASSWORD = password\n"
         "ENDPOINT = //server/share\n"
@@ -902,19 +902,67 @@ void test_config_power_management_custom() {
         "CPU_SPEED_MHZ = 160\n"
         "WIFI_TX_PWR = mid\n"
         "WIFI_PWR_SAVING = max\n";
-    
+
     mockSD.addFile("/config.txt", configContent);
-    
+
     Config config;
     bool loaded = config.loadFromSD(mockSD);
-    
+
     TEST_ASSERT_TRUE(loaded);
     TEST_ASSERT_TRUE(config.valid());
-    
+
     // Test custom power management values
     TEST_ASSERT_EQUAL(160, config.getCpuSpeedMhz());
     TEST_ASSERT_EQUAL(WifiTxPower::POWER_MID, config.getWifiTxPower());
     TEST_ASSERT_EQUAL(WifiPowerSaving::SAVE_MAX, config.getWifiPowerSaving());
+}
+
+void test_o2ring_defaults() {
+    Config config;
+    TEST_ASSERT_FALSE(config.isO2RingEnabled());
+    TEST_ASSERT_EQUAL_STRING("O2Ring", config.getO2RingDeviceName().c_str());
+    TEST_ASSERT_EQUAL_STRING("oximetry/raw", config.getO2RingPath().c_str());
+    TEST_ASSERT_EQUAL_INT(30, config.getO2RingScanSeconds());
+}
+
+void test_o2ring_config_load() {
+    mockSD.clear();
+    Preferences::clearAll();
+    std::string cfg =
+        "WIFI_SSID = Net\n"
+        "WIFI_PASSWORD = pass\n"
+        "ENDPOINT = //192.168.0.1/share\n"
+        "ENDPOINT_TYPE = SMB\n"
+        "ENDPOINT_USER = u\n"
+        "ENDPOINT_PASSWORD = p\n"
+        "O2RING_ENABLED = true\n"
+        "O2RING_DEVICE_NAME = O2Ring-S\n"
+        "O2RING_PATH = oximetry/raw\n"
+        "O2RING_SCAN_SECONDS = 45\n";
+    mockSD.addFile("/config.txt", cfg);
+    Config config;
+    TEST_ASSERT_TRUE(config.loadFromSD(mockSD));
+    TEST_ASSERT_TRUE(config.isO2RingEnabled());
+    TEST_ASSERT_EQUAL_STRING("O2Ring-S", config.getO2RingDeviceName().c_str());
+    TEST_ASSERT_EQUAL_STRING("oximetry/raw", config.getO2RingPath().c_str());
+    TEST_ASSERT_EQUAL_INT(45, config.getO2RingScanSeconds());
+}
+
+void test_o2ring_scan_seconds_clamped() {
+    mockSD.clear();
+    Preferences::clearAll();
+    std::string cfg =
+        "WIFI_SSID = Net\n"
+        "WIFI_PASSWORD = pass\n"
+        "ENDPOINT = //192.168.0.1/share\n"
+        "ENDPOINT_TYPE = SMB\n"
+        "ENDPOINT_USER = u\n"
+        "ENDPOINT_PASSWORD = p\n"
+        "O2RING_SCAN_SECONDS = 999\n";
+    mockSD.addFile("/config.txt", cfg);
+    Config config;
+    config.loadFromSD(mockSD);
+    TEST_ASSERT_EQUAL_INT(30, config.getO2RingScanSeconds());
 }
 
 int main(int argc, char **argv) {
@@ -961,7 +1009,12 @@ int main(int argc, char **argv) {
     // Power management tests
     RUN_TEST(test_config_power_management_defaults);
     RUN_TEST(test_config_power_management_custom);
-    
+
+    // O2Ring BLE sync tests
+    RUN_TEST(test_o2ring_defaults);
+    RUN_TEST(test_o2ring_config_load);
+    RUN_TEST(test_o2ring_scan_seconds_clamped);
+
     UNITY_END();
     
     return 0;
