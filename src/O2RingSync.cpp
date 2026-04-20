@@ -9,6 +9,10 @@ O2RingSync::O2RingSync(Config* cfg, IBleClient* bleClient)
 bool O2RingSync::sendCommand(uint8_t cmd, uint16_t block,
                               const uint8_t* data, uint16_t dataLen) {
     uint8_t packet[256];
+    if ((size_t)8 + dataLen > sizeof(packet)) {
+        LOG_ERRORF("[O2Ring] sendCommand: dataLen %u exceeds packet buffer", (unsigned)dataLen);
+        return false;
+    }
     size_t len = O2RingProtocol::buildPacket(packet, cmd, block, data, dataLen);
     return ble->writeChunked(packet, len);
 }
@@ -51,6 +55,12 @@ bool O2RingSync::downloadAndUpload(const String& filename) {
     }
     LOGF("[O2Ring] File: %s  size: %u bytes", filename.c_str(), (unsigned)fileSize);
 
+    // Helper to close the open file handle. CLOSE response CRC errors are not fatal.
+    auto fileClose = [&]() {
+        sendCommand(O2RingProtocol::CMD_FILE_CLOSE, 0, nullptr, 0);
+        receiveResponse(respBuf, sizeof(respBuf), respLen);
+    };
+
     // Read file in blocks
     std::vector<uint8_t> fileData;
     fileData.reserve(fileSize);
@@ -59,15 +69,18 @@ bool O2RingSync::downloadAndUpload(const String& filename) {
     while (received < fileSize) {
         if (!sendCommand(O2RingProtocol::CMD_FILE_READ, block, nullptr, 0)) {
             LOG_ERRORF("[O2Ring] FILE_READ write failed at block %u", (unsigned)block);
+            fileClose();
             return false;
         }
         size_t rLen = 0;
         if (!receiveResponse(respBuf, sizeof(respBuf), rLen)) {
             LOGF("[O2Ring] FILE_READ no response at block %u", (unsigned)block);
+            fileClose();
             return false;
         }
         if (rLen < 9) break;
         uint16_t dataLen = (uint16_t)respBuf[5] | ((uint16_t)respBuf[6] << 8);
+        if ((size_t)(7 + dataLen) > rLen) break;
         for (uint16_t i = 0; i < dataLen && received < fileSize; i++) {
             fileData.push_back(respBuf[7 + i]);
             received++;
@@ -76,8 +89,7 @@ bool O2RingSync::downloadAndUpload(const String& filename) {
     }
 
     // FILE_CLOSE
-    sendCommand(O2RingProtocol::CMD_FILE_CLOSE, 0, nullptr, 0);
-    receiveResponse(respBuf, sizeof(respBuf), respLen);
+    fileClose();
 
     if (received < fileSize) {
         LOGF("[O2Ring] Incomplete file: %s (%u/%u bytes)", filename.c_str(),
@@ -97,7 +109,8 @@ bool O2RingSync::downloadAndUpload(const String& filename) {
     smb.createDirectory("/" + config->getO2RingPath());
 
     // Full SMB buffer upload is wired up in Task 6.
-    LOGF("[O2Ring] Would upload %u bytes to %s", (unsigned)fileData.size(), remotePath.c_str());
+    LOG_WARNF("[O2Ring] Would upload %u bytes to %s", (unsigned)fileData.size(), remotePath.c_str());
+    // TODO(Task6): replace stub with real SMBUploader::uploadBuffer() call — this currently reports success without uploading.
     smb.end();
 #endif
 
@@ -152,6 +165,7 @@ O2RingSyncResult O2RingSync::run() {
             state.save();
             LOGF("[O2Ring] Synced: %s", f.c_str());
         } else {
+            // Leave file unmarked so it retries next sync cycle. Continue to attempt remaining files.
             anyFailed = true;
             LOGF("[O2Ring] Failed to sync: %s", f.c_str());
         }

@@ -88,8 +88,9 @@ void test_info_command_sent_on_connect() {
     sync.run();
 
     // First byte of lastWritten should be 0xAA and CMD should be CMD_INFO
-    TEST_ASSERT_EQUAL_UINT8(0xAA, mockBle->lastWritten[0]);
     TEST_ASSERT_GREATER_THAN(0, (int)mockBle->lastWritten.size());
+    TEST_ASSERT_EQUAL_UINT8(0xAA, mockBle->lastWritten[0]);
+    TEST_ASSERT_EQUAL_UINT8(O2RingProtocol::CMD_INFO, mockBle->lastWritten[1]);
 }
 
 int main() {
