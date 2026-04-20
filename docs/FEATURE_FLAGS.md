@@ -66,6 +66,10 @@ CLOUD_CLIENT_SECRET = your-sleephq-client-secret
 
 Can also be combined with SMB: `ENDPOINT_TYPE = SMB,CLOUD`
 
+### ENABLE_O2RING_SYNC
+
+Enables BLE sync with Wellue O2Ring-S after each CPAP upload cycle. Downloads stored `.vld` session files from the ring and writes them to the configured SMB path. Requires `O2RING_ENABLED = true` in `config.txt`. Binary size impact: +~50KB (BLE stack already in ESP32 ROM, minimal overhead).
+
 ## How to Enable/Disable Backends
 
 ### Method 1: Edit platformio.ini (Recommended)
