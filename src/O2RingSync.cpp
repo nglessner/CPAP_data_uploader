@@ -148,6 +148,12 @@ O2RingSyncResult O2RingSync::run() {
     LOGF("[O2Ring] Device reports %u file(s)", (unsigned)fileList.size());
 
     state.load();
+    // Bound the dedup set to what the device currently reports. History outside
+    // the ring's on-device file list is dead weight and, unpruned, would grow
+    // the serialized NVS string past the 4000-byte per-entry ceiling. See #2.
+    state.retainOnly(fileList);
+    state.save();
+
     std::vector<String> toDownload;
     for (auto& f : fileList) {
         if (!state.hasSeen(f)) toDownload.push_back(f);

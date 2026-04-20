@@ -93,10 +93,36 @@ void test_info_command_sent_on_connect() {
     TEST_ASSERT_EQUAL_UINT8(O2RingProtocol::CMD_INFO, mockBle->lastWritten[1]);
 }
 
+void test_stale_seen_entries_pruned_after_info() {
+    const char* json = R"({"CurBAT":"75%","FileList":"20260116233312.vld","Model":"O2Ring","SN":"1234"})";
+    mockBle->enqueueResponse(makeResponse(O2RingProtocol::CMD_INFO, 0,
+        (const uint8_t*)json, (uint16_t)strlen(json)));
+
+    {
+        O2RingState state;
+        state.load();
+        state.markSeen("20260116233312.vld");
+        state.markSeen("20250101000000.vld");
+        state.markSeen("20250202000000.vld");
+        state.save();
+    }
+
+    O2RingSync sync(cfg, mockBle);
+    O2RingSyncResult result = sync.run();
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::NOTHING_TO_SYNC, (int)result);
+
+    O2RingState reloaded;
+    reloaded.load();
+    TEST_ASSERT_TRUE(reloaded.hasSeen("20260116233312.vld"));
+    TEST_ASSERT_FALSE(reloaded.hasSeen("20250101000000.vld"));
+    TEST_ASSERT_FALSE(reloaded.hasSeen("20250202000000.vld"));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_device_not_found_returns_error);
     RUN_TEST(test_nothing_to_sync_when_all_seen);
     RUN_TEST(test_info_command_sent_on_connect);
+    RUN_TEST(test_stale_seen_entries_pruned_after_info);
     return UNITY_END();
 }
