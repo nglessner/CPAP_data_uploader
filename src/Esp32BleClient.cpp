@@ -3,9 +3,9 @@
 #include "Esp32BleClient.h"
 #include "Logger.h"
 
-uint8_t Esp32BleClient::_notifyBuf[1024];
-size_t  Esp32BleClient::_notifyLen  = 0;
-bool    Esp32BleClient::_notifyReady = false;
+uint8_t          Esp32BleClient::_notifyBuf[1024];
+volatile size_t  Esp32BleClient::_notifyLen  = 0;
+volatile bool    Esp32BleClient::_notifyReady = false;
 
 Esp32BleClient::Esp32BleClient()
     : client(nullptr), writeChar(nullptr), notifyChar(nullptr), _connected(false) {}
@@ -32,7 +32,11 @@ void Esp32BleClient::notifyCallback(BLERemoteCharacteristic* pChar,
 }
 
 bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
-    BLEDevice::init("");
+    static bool bleInitialized = false;
+    if (!bleInitialized) {
+        BLEDevice::init("");
+        bleInitialized = true;
+    }
     BLEScan* scan = BLEDevice::getScan();
     scan->setActiveScan(true);
     BLEScanResults results = scan->start((int)scanSecs, false);
@@ -55,13 +59,14 @@ bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
     client = BLEDevice::createClient();
     if (!client->connect(targetAddr)) {
         LOG_WARN("[O2Ring BLE] Connection failed");
+        disconnect();
         return false;
     }
 
     BLERemoteService* svc = client->getService(O2RingProtocol::SERVICE_UUID);
     if (!svc) {
         LOG_WARN("[O2Ring BLE] Service not found");
-        client->disconnect();
+        disconnect();
         return false;
     }
 
@@ -69,7 +74,7 @@ bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
     notifyChar = svc->getCharacteristic(O2RingProtocol::NOTIFY_UUID);
     if (!writeChar || !notifyChar) {
         LOG_WARN("[O2Ring BLE] Characteristics not found");
-        client->disconnect();
+        disconnect();
         return false;
     }
 
@@ -91,6 +96,8 @@ bool Esp32BleClient::writeChunked(const uint8_t* data, size_t len) {
 
 bool Esp32BleClient::readResponse(uint8_t* buffer, size_t bufCap, size_t& outLen,
                                    uint32_t timeoutMs) {
+    // Caller invariant: one outstanding command at a time (writeChunked → readResponse pairs).
+    // Late notifications from a prior command would corrupt this buffer if the invariant is broken.
     _notifyLen   = 0;
     _notifyReady = false;
     unsigned long deadline = millis() + timeoutMs;
@@ -106,8 +113,12 @@ bool Esp32BleClient::readResponse(uint8_t* buffer, size_t bufCap, size_t& outLen
 }
 
 void Esp32BleClient::disconnect() {
-    if (client && client->isConnected()) {
-        client->disconnect();
+    if (client) {
+        if (client->isConnected()) {
+            client->disconnect();
+        }
+        delete client;
+        client = nullptr;
     }
     _connected = false;
     writeChar  = nullptr;
