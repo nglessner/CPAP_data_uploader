@@ -30,9 +30,9 @@ private:
     bool _connected;
 
     // Notification accumulation buffer (used by static callback)
-    static uint8_t _notifyBuf[1024];
-    static size_t  _notifyLen;
-    static bool    _notifyReady;
+    static uint8_t          _notifyBuf[1024];
+    static volatile size_t  _notifyLen;
+    static volatile bool    _notifyReady;
 
     static void notifyCallback(BLERemoteCharacteristic* pChar,
                                 uint8_t* pData, size_t length, bool isNotify);
