@@ -909,4 +909,40 @@ bool SMBUploader::getRemoteFileInfo(const String& remotePath, std::map<String, s
     return true;
 }
 
+bool SMBUploader::uploadRawBuffer(const String& remotePath, const uint8_t* data, size_t len) {
+    if (!connected && !connect()) {
+        return false;
+    }
+
+    String fullPath = smbBasePath.length() > 0
+                    ? smbBasePath + remotePath
+                    : remotePath;
+
+    // libsmb2 expects paths relative to share root without a leading slash
+    if (fullPath.startsWith("/")) {
+        fullPath = fullPath.substring(1);
+    }
+
+    struct smb2fh* fh = smb2_open(smb2, fullPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC);
+    if (!fh) {
+        LOGF("[SMB] uploadBuffer: open failed: %s", remotePath.c_str());
+        return false;
+    }
+
+    size_t written = 0;
+    while (written < len) {
+        size_t chunk = (len - written) < 4096 ? (len - written) : 4096;
+        int n = smb2_write(smb2, fh, (uint8_t*)data + written, chunk);
+        if (n <= 0) {
+            smb2_close(smb2, fh);
+            LOGF("[SMB] uploadBuffer: write error at offset %u", (unsigned)written);
+            return false;
+        }
+        written += (size_t)n;
+    }
+    smb2_close(smb2, fh);
+    LOGF("[SMB] uploadBuffer: wrote %u bytes to %s", (unsigned)written, remotePath.c_str());
+    return true;
+}
+
 #endif // ENABLE_SMB_UPLOAD
