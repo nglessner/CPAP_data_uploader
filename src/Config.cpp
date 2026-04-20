@@ -37,10 +37,10 @@ Config::Config() :
     credentialsInFlash(false),  // Will be set during loadFromSD
 
     // O2Ring BLE sync defaults
-    o2ringEnabled(false),
-    o2ringDeviceName("O2Ring"),
-    o2ringPath("oximetry/raw"),
-    o2ringScanSeconds(30),
+    o2ringEnabled(false),          // Default: disabled
+    o2ringDeviceName("O2Ring"),    // Default: match Wellue O2Ring advertised name prefix
+    o2ringPath("oximetry/raw"),    // Default: staged oximetry artifact path on SMB share
+    o2ringScanSeconds(30),         // Default: 30s BLE scan window
 
     // Power management defaults
     cpuSpeedMhz(240),  // Default: 240MHz (full speed)
@@ -236,7 +236,7 @@ void Config::setConfigValue(String key, String value) {
     } else if (key == "STORE_CREDENTIALS_PLAIN_TEXT") {
         storePlainText = (value.equalsIgnoreCase("true") || value.toInt() == 1);
     } else if (key == "O2RING_ENABLED") {
-        o2ringEnabled = (value == "true" || value == "1" || value == "yes");
+        o2ringEnabled = (value.equalsIgnoreCase("true") || value.toInt() == 1);
     } else if (key == "O2RING_DEVICE_NAME") {
         o2ringDeviceName = value;
     } else if (key == "O2RING_PATH") {
