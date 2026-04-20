@@ -92,6 +92,30 @@ Only required when `ENDPOINT_TYPE` includes `CLOUD`.
 
 ---
 
+## 9. O2Ring BLE Sync (optional)
+
+These settings are only active when firmware is built with `-DENABLE_O2RING_SYNC`.
+
+| Key | Default | Description |
+|---|---|---|
+| `O2RING_ENABLED` | `false` | Set to `true` to enable BLE sync after each CPAP upload |
+| `O2RING_DEVICE_NAME` | `O2Ring` | BLE advertised name prefix to scan for |
+| `O2RING_PATH` | `oximetry/raw` | Subfolder within the configured SMB endpoint for `.vld` files |
+| `O2RING_SCAN_SECONDS` | `30` | BLE scan duration in seconds (1–120) |
+
+**Example:**
+
+```ini
+O2RING_ENABLED = true
+O2RING_DEVICE_NAME = O2Ring
+O2RING_PATH = oximetry/raw
+O2RING_SCAN_SECONDS = 30
+```
+
+The sync runs after each CPAP upload cycle, once the SD card has been released back to the CPAP machine. `.vld` session files are downloaded from the ring over BLE and written directly to the SMB share — no SD card access is required.
+
+---
+
 ## Removed / Legacy Keys
 
 The following keys are **no longer used** by the firmware. They will generate a `WARN: Unknown config key` log message if present in `config.txt`.
