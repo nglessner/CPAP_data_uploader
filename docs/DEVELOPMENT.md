@@ -34,6 +34,16 @@ This document is for developers who want to build, modify, or contribute to the 
 - **WebDAVUploader** - Uploads to WebDAV servers (TODO: placeholder)
 - **SleepHQUploader** - Direct upload to SleepHQ cloud service via REST API with OAuth authentication
 
+### O2Ring-S BLE Sync (optional, `-DENABLE_O2RING_SYNC`)
+
+Companion ingest path for the Wellue O2Ring-S SpO2 finger ring. Runs as a dedicated FSM state (`O2RING_SYNC`) inserted between `RELEASING` and `COOLDOWN`, so BLE work only starts after the SD bus has been handed back to the CPAP.
+
+- **Transport:** `IBleClient` is a pure interface; `Esp32BleClient` wraps Arduino BLEDevice and is compiled out of the native test build via `#ifndef UNIT_TEST`. `MockBleClient` (queue-driven) stands in for it on host.
+- **Protocol:** custom GATT service, Wellue CRC-8 framing, commands `CMD_INFO` (returns JSON with `FileList`), `FILE_OPEN`, `FILE_READ` (paged by block index), `FILE_CLOSE`. All framing primitives live in `O2RingProtocol.h` as pure functions — covered by unit tests on native.
+- **Orchestration:** `O2RingSync::run()` scans → connects → `CMD_INFO` → diff against dedup set → per-file download loop → each downloaded buffer goes straight to `SMBUploader::uploadRawBuffer` (no SD-card staging). `FILE_CLOSE` runs on every error path via RAII lambda.
+- **Dedup storage:** `O2RingState` persists synced filenames in NVS (`o2ring/synced`) as a comma-separated string. Each sync prunes the set to the ring's current on-device file list via `retainOnly(fileList)`, so the serialized string is bounded by the ring's ~50-session capacity — well under the 4000-byte `nvs_set_str` ceiling. Files that roll off the ring are forgotten by design; if one reappears, it will be re-synced.
+- **Partition compatibility:** the BLE stack adds ~560 KB of flash, so this flag is `pico32`-only. `pico32-ota` with the stock 1.5 MB app slots overflows. See `docs/FEATURE_FLAGS.md`.
+
 ### Supporting Components
 
 - **Logger** - Circular buffer logging system with web API access
