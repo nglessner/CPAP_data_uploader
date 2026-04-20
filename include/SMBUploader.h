@@ -152,12 +152,27 @@ public:
     /**
      * Get file information from remote directory (for deep scan functionality)
      * Returns a map of filename to file size for comparison with local files
-     * 
+     *
      * @param remotePath Path on SMB share to scan (e.g., "/DATALOG/20241101")
      * @param fileInfo Output map of filename -> file size in bytes
      * @return true if successful, false on error
      */
     bool getRemoteFileInfo(const String& remotePath, std::map<String, size_t>& fileInfo);
+
+    /**
+     * Upload raw memory buffer to a remote path (no SD card required).
+     * Used for O2Ring .vld data held in RAM after BLE download.
+     *
+     * Note: named uploadRawBuffer to avoid collision with the private
+     * member field `uint8_t* uploadBuffer` (same-name method + member
+     * is rejected by GCC even though they are distinguishable by context).
+     *
+     * @param remotePath Path on SMB share (e.g., "/oximetry/raw/20260116233312.vld")
+     * @param data Pointer to buffer to upload
+     * @param len Number of bytes to upload
+     * @return true if upload successful, false otherwise
+     */
+    bool uploadRawBuffer(const String& remotePath, const uint8_t* data, size_t len);
 };
 
 #endif // ENABLE_SMB_UPLOAD

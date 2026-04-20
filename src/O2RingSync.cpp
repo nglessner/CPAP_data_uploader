@@ -107,11 +107,12 @@ bool O2RingSync::downloadAndUpload(const String& filename) {
     }
     String remotePath = "/" + config->getO2RingPath() + "/" + filename;
     smb.createDirectory("/" + config->getO2RingPath());
-
-    // Full SMB buffer upload is wired up in Task 6.
-    LOG_WARNF("[O2Ring] Would upload %u bytes to %s", (unsigned)fileData.size(), remotePath.c_str());
-    // TODO(Task6): replace stub with real SMBUploader::uploadBuffer() call — this currently reports success without uploading.
+    bool uploaded = smb.uploadRawBuffer(remotePath, fileData.data(), fileData.size());
     smb.end();
+    if (!uploaded) {
+        LOG_ERROR("[O2Ring] SMB uploadBuffer failed");
+        return false;
+    }
 #endif
 
     return true;
