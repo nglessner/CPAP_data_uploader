@@ -68,7 +68,11 @@ Can also be combined with SMB: `ENDPOINT_TYPE = SMB,CLOUD`
 
 ### ENABLE_O2RING_SYNC
 
-Enables BLE sync with Wellue O2Ring-S after each CPAP upload cycle. Downloads stored `.vld` session files from the ring and writes them to the configured SMB path. Requires `O2RING_ENABLED = true` in `config.txt`. Binary size impact: +~50KB (BLE stack already in ESP32 ROM, minimal overhead).
+Enables BLE sync with Wellue O2Ring-S after each CPAP upload cycle. Downloads stored `.vld` session files from the ring and writes them to the configured SMB path. Requires `O2RING_ENABLED = true` in `config.txt`. Off by default.
+
+**Binary size impact:** ~+600KB (pulls in the Bluedroid BLE stack, GATT client, and associated ESP-IDF components).
+
+**Partition compatibility:** Supported only on `pico32` (3MB `huge_app.csv` partition scheme). Incompatible with `pico32-ota` as-is — the BLE stack pushes firmware ~560KB over the default 1.5MB OTA app slot. Using O2Ring sync with OTA requires a custom partition scheme that reclaims space from SPIFFS/NVS.
 
 ## How to Enable/Disable Backends
 
