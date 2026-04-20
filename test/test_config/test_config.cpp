@@ -937,14 +937,14 @@ void test_o2ring_config_load() {
         "ENDPOINT_PASSWORD = p\n"
         "O2RING_ENABLED = true\n"
         "O2RING_DEVICE_NAME = O2Ring-S\n"
-        "O2RING_PATH = oximetry/raw\n"
+        "O2RING_PATH = sleep/oximetry/staged\n"
         "O2RING_SCAN_SECONDS = 45\n";
     mockSD.addFile("/config.txt", cfg);
     Config config;
     TEST_ASSERT_TRUE(config.loadFromSD(mockSD));
     TEST_ASSERT_TRUE(config.isO2RingEnabled());
     TEST_ASSERT_EQUAL_STRING("O2Ring-S", config.getO2RingDeviceName().c_str());
-    TEST_ASSERT_EQUAL_STRING("oximetry/raw", config.getO2RingPath().c_str());
+    TEST_ASSERT_EQUAL_STRING("sleep/oximetry/staged", config.getO2RingPath().c_str());
     TEST_ASSERT_EQUAL_INT(45, config.getO2RingScanSeconds());
 }
 
