@@ -74,6 +74,8 @@ Enables BLE sync with Wellue O2Ring-S after each CPAP upload cycle. Downloads st
 
 **Partition compatibility:** Supported only on `pico32` (3MB `huge_app.csv` partition scheme). Incompatible with `pico32-ota` as-is — the BLE stack pushes firmware ~560KB over the default 1.5MB OTA app slot. Using O2Ring sync with OTA requires a custom partition scheme that reclaims space from SPIFFS/NVS.
 
+**NVS dedup storage:** Synced filenames are tracked in NVS namespace `o2ring`, key `synced`, as a comma-joined string. Each sync cycle prunes this set to the O2Ring's current on-device file list (reported via the BLE `CMD_INFO` response's `FileList` field), so the stored string is bounded by the ring's capacity (~50 entries, well under the 4000-byte `nvs_set_str` per-entry ceiling). Files that roll off the ring are forgotten by design — if the ring re-reports a filename matching a previously-synced one after a rollover gap, it will be re-downloaded and re-uploaded.
+
 ## How to Enable/Disable Backends
 
 ### Method 1: Edit platformio.ini (Recommended)
