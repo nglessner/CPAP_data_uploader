@@ -10,7 +10,8 @@ enum class UploadState {
     RELEASING,
     COOLDOWN,
     COMPLETE,
-    MONITORING
+    MONITORING,
+    O2RING_SYNC
 };
 
 inline const char* getStateName(UploadState state) {
@@ -23,6 +24,7 @@ inline const char* getStateName(UploadState state) {
         case UploadState::COOLDOWN: return "COOLDOWN";
         case UploadState::COMPLETE: return "COMPLETE";
         case UploadState::MONITORING: return "MONITORING";
+        case UploadState::O2RING_SYNC: return "O2RING_SYNC";
         default: return "UNKNOWN";
     }
 }

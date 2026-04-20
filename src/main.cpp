@@ -24,6 +24,11 @@ bool g_heapRecoveryBoot = false;
 #include "OTAManager.h"
 #endif
 
+#ifdef ENABLE_O2RING_SYNC
+#include "O2RingSync.h"
+#include "Esp32BleClient.h"
+#endif
+
 #ifdef ENABLE_WEBSERVER
 #include "CpapWebServer.h"
 #include "CPAPMonitor.h"
@@ -710,6 +715,14 @@ void handleReleasing() {
         return;
     }
 
+#ifdef ENABLE_O2RING_SYNC
+    if (config.isO2RingEnabled()) {
+        LOG("[FSM] SD released — entering O2RING_SYNC before cooldown");
+        transitionTo(UploadState::O2RING_SYNC);
+        return;
+    }
+#endif
+
     // If nothing was uploaded, skip the reboot and go straight to cooldown.
     // This prevents an endless reboot cycle when all backends are already synced.
     if (g_nothingToUpload) {
@@ -779,7 +792,7 @@ void handleMonitoring() {
     // TrafficMonitor.update() runs as normal (called in main loop)
     // No upload activity, no SD card access
     // Web endpoint /api/sd-activity serves live PCNT sample data
-    
+
     if (stopMonitoringRequested) {
         stopMonitoringRequested = false;
         LOG("[FSM] Monitoring stopped by user");
@@ -792,6 +805,38 @@ void handleMonitoring() {
         }
     }
 }
+
+#ifdef ENABLE_O2RING_SYNC
+void handleO2RingSync() {
+    LOGF("[FSM] O2Ring sync starting (device: %s, scan: %ds)",
+         config.getO2RingDeviceName().c_str(), config.getO2RingScanSeconds());
+
+    Esp32BleClient bleClient;
+    O2RingSync sync(&config, &bleClient);
+    O2RingSyncResult result = sync.run();
+
+    switch (result) {
+        case O2RingSyncResult::OK:
+            LOG("[FSM] O2Ring sync complete");
+            break;
+        case O2RingSyncResult::NOTHING_TO_SYNC:
+            LOG("[FSM] O2Ring sync: nothing new");
+            break;
+        case O2RingSyncResult::DEVICE_NOT_FOUND:
+            LOG_WARN("[FSM] O2Ring sync: device not found (ring not in range?)");
+            break;
+        case O2RingSyncResult::SMB_ERROR:
+            LOG_WARN("[FSM] O2Ring sync: SMB upload failed");
+            break;
+        case O2RingSyncResult::BLE_ERROR:
+            LOG_WARN("[FSM] O2Ring sync: BLE error");
+            break;
+    }
+
+    cooldownStartedAt = millis();
+    transitionTo(UploadState::COOLDOWN);
+}
+#endif // ENABLE_O2RING_SYNC
 
 // ============================================================================
 // Loop Function
@@ -980,5 +1025,8 @@ void loop() {
         case UploadState::COOLDOWN:   handleCooldown();   break;
         case UploadState::COMPLETE:   handleComplete();   break;
         case UploadState::MONITORING: handleMonitoring(); break;
+#ifdef ENABLE_O2RING_SYNC
+        case UploadState::O2RING_SYNC:  handleO2RingSync();  break;
+#endif
     }
 }
