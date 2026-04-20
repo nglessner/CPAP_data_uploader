@@ -35,7 +35,13 @@ Config::Config() :
     
     storePlainText(false),  // Default: secure mode
     credentialsInFlash(false),  // Will be set during loadFromSD
-    
+
+    // O2Ring BLE sync defaults
+    o2ringEnabled(false),
+    o2ringDeviceName("O2Ring"),
+    o2ringPath("oximetry/raw"),
+    o2ringScanSeconds(30),
+
     // Power management defaults
     cpuSpeedMhz(240),  // Default: 240MHz (full speed)
     wifiTxPower(WifiTxPower::POWER_HIGH),  // Default: high power
@@ -229,6 +235,15 @@ void Config::setConfigValue(String key, String value) {
         wifiPowerSaving = parseWifiPowerSaving(value);
     } else if (key == "STORE_CREDENTIALS_PLAIN_TEXT") {
         storePlainText = (value.equalsIgnoreCase("true") || value.toInt() == 1);
+    } else if (key == "O2RING_ENABLED") {
+        o2ringEnabled = (value == "true" || value == "1" || value == "yes");
+    } else if (key == "O2RING_DEVICE_NAME") {
+        o2ringDeviceName = value;
+    } else if (key == "O2RING_PATH") {
+        o2ringPath = value;
+    } else if (key == "O2RING_SCAN_SECONDS") {
+        int v = value.toInt();
+        if (v > 0 && v <= 120) o2ringScanSeconds = v;
     } else {
         LOGF("WARN: Unknown config key '%s'. Skipping.", key.c_str());
     }
@@ -638,3 +653,9 @@ String Config::wifiPowerSavingToString(WifiPowerSaving saving) {
         default: return "UNKNOWN";
     }
 }
+
+// O2Ring BLE sync getters
+bool Config::isO2RingEnabled() const { return o2ringEnabled; }
+const String& Config::getO2RingDeviceName() const { return o2ringDeviceName; }
+const String& Config::getO2RingPath() const { return o2ringPath; }
+int Config::getO2RingScanSeconds() const { return o2ringScanSeconds; }

@@ -74,6 +74,12 @@ private:
     // Credential storage mode flags
     bool storePlainText;
     bool credentialsInFlash;
+
+    // O2Ring BLE sync settings
+    bool o2ringEnabled;
+    String o2ringDeviceName;
+    String o2ringPath;
+    int o2ringScanSeconds;
     
     // Preferences object for secure credential storage
     Preferences preferences;
@@ -154,7 +160,13 @@ public:
     // Credential storage mode getters
     bool isStoringPlainText() const;
     bool areCredentialsInFlash() const;
-    
+
+    // O2Ring BLE sync getters
+    bool isO2RingEnabled() const;
+    const String& getO2RingDeviceName() const;
+    const String& getO2RingPath() const;
+    int getO2RingScanSeconds() const;
+
 private:
     // Helper methods for enum conversion
     static WifiTxPower parseWifiTxPower(const String& str);
