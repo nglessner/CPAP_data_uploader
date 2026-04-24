@@ -584,7 +584,7 @@ bool Config::loadFromSD(fs::FS &sd) {
     // Resolve device segment for SMB path disambiguation (O2Ring uploads).
     // Uses DEVICE_NAME if set, else WiFi MAC (colons stripped, lowercased).
     deviceSegment = resolveDeviceSegment(deviceName, WiFi.macAddress());
-    LOG_DEBUGF("[Config] Device segment resolved to: %s", deviceSegment.c_str());
+    LOG_INFOF("[Config] Device segment resolved to: %s", deviceSegment.c_str());
 
     return isValid;
 }
