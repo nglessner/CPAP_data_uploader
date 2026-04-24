@@ -26,3 +26,11 @@ include/version.h
 *.bak
 *.swp
 *~
+
+# Firmware backups (contain plaintext credentials in NVS)
+backups/
+
+# Scratch debugging tools — local PlatformIO sub-projects for isolating
+# hardware / BLE / coex issues. Kept out of VCS per session; see #133 for
+# the NimBLE + WiFi coex probe methodology if you need to reproduce.
+tools/
