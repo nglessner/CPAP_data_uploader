@@ -11,6 +11,7 @@ All settings are read from `/config.txt` on the SD card at boot. The file uses s
 | `WIFI_SSID` | *(required)* | WiFi network name to connect to |
 | `WIFI_PASSWORD` | *(empty)* | WiFi password. Supports all characters including `@`, `!`, `#`. After first successful boot the password is migrated to encrypted flash (NVS) and censored in the config file. |
 | `HOSTNAME` | `cpap` | mDNS hostname. Device becomes reachable at `http://<hostname>.local`. |
+| `DEVICE_NAME` | *(empty)* | Human-readable identifier for this uploader, used as the `<device>` segment in the O2Ring SMB path (`<O2RING_PATH>/<device>/...`). Sanitized to `[a-zA-Z0-9_-]`, capped at 32 chars. If empty, the WiFi MAC (colons stripped, lowercased) is used. |
 
 ---
 
@@ -100,7 +101,7 @@ These settings are only active when firmware is built with `-DENABLE_O2RING_SYNC
 |---|---|---|
 | `O2RING_ENABLED` | `false` | Set to `true` to enable BLE sync after each CPAP upload |
 | `O2RING_DEVICE_NAME` | `O2Ring` | BLE advertised name prefix to scan for |
-| `O2RING_PATH` | `oximetry/raw` | Subfolder within the configured SMB endpoint for `.vld` files |
+| `O2RING_PATH` | `oximetry/raw` | Base subfolder within the configured SMB endpoint for `.vld` files. Final upload path is `<O2RING_PATH>/<DEVICE_NAME-or-MAC>/<file>.vld` — see `DEVICE_NAME` in section 1 |
 | `O2RING_SCAN_SECONDS` | `30` | BLE scan duration in seconds (1–120) |
 
 **Example:**
