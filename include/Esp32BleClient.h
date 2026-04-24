@@ -4,13 +4,15 @@
 #ifndef UNIT_TEST
 
 #include "IBleClient.h"
-#include <BLEDevice.h>
-#include <BLEScan.h>
-#include <BLEClient.h>
-#include <BLERemoteCharacteristic.h>
-#include <BLEAdvertisedDevice.h>
+#include <NimBLEDevice.h>
 #include "O2RingProtocol.h"
 
+// Backed by NimBLE-Arduino. The original implementation used Bluedroid
+// (arduino-esp32's built-in BLE), but `BLEDevice::init()` aborted inside
+// `coex_core_enable` whenever WiFi was already associated — reproducibly
+// on the SD WIFI PRO hardware, regardless of contiguous heap. NimBLE has
+// a different coex integration path and does not trip that failure, and
+// it also uses ~60% less RAM. See admin/sleep#133.
 class Esp32BleClient : public IBleClient {
 public:
     Esp32BleClient();
@@ -23,10 +25,18 @@ public:
     void disconnect() override;
     bool isConnected() const override;
 
+    // Bring up the NimBLE stack. Idempotent. Call once at boot (after WiFi)
+    // when O2Ring is enabled — FSM-time lazy init fails inside
+    // esp_bt_controller_enable once the heap has been fragmented by SMB
+    // buffers / web server / etc. See admin/sleep#133.
+    static void initStack();
+
 private:
-    BLEClient* client;
-    BLERemoteCharacteristic* writeChar;
-    BLERemoteCharacteristic* notifyChar;
+    static bool bleInitialized;
+
+    NimBLEClient* client;
+    NimBLERemoteCharacteristic* writeChar;
+    NimBLERemoteCharacteristic* notifyChar;
     bool _connected;
 
     // Notification accumulation buffer (used by static callback)
@@ -34,7 +44,7 @@ private:
     static volatile size_t  _notifyLen;
     static volatile bool    _notifyReady;
 
-    static void notifyCallback(BLERemoteCharacteristic* pChar,
+    static void notifyCallback(NimBLERemoteCharacteristic* pChar,
                                 uint8_t* pData, size_t length, bool isNotify);
 };
 
