@@ -105,8 +105,9 @@ bool O2RingSync::downloadAndUpload(const String& filename) {
         LOG_ERROR("[O2Ring] SMB connect failed");
         return false;
     }
-    String remotePath = "/" + config->getO2RingPath() + "/" + filename;
-    smb.createDirectory("/" + config->getO2RingPath());
+    String dir = "/" + config->getO2RingPath() + "/" + config->getDeviceSegment();
+    smb.createDirectory(dir);
+    String remotePath = dir + "/" + filename;
     bool uploaded = smb.uploadRawBuffer(remotePath, fileData.data(), fileData.size());
     smb.end();
     if (!uploaded) {
