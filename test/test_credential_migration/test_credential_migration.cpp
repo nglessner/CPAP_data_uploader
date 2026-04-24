@@ -11,6 +11,7 @@
 
 // Mock Preferences before including Config
 #include "../mocks/MockPreferences.h"
+#include "../mocks/MockWiFi.h"
 
 // Include the Config implementation
 #include "Config.h"

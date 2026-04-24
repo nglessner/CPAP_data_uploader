@@ -4,6 +4,7 @@
 #define LOGGER_H
 #include "../mocks/MockPreferences.h"
 #include "../mocks/MockBleClient.h"
+#include "../mocks/MockWiFi.h"
 
 #include "O2RingProtocol.h"
 #include "O2RingState.h"
