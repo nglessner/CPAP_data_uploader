@@ -73,6 +73,33 @@ void test_sanitize_trailing_hyphen_after_cap_is_trimmed() {
     TEST_ASSERT_NOT_EQUAL('-', out.charAt(out.length() - 1));
 }
 
+// ---------- resolveDeviceSegment ----------
+
+void test_resolve_name_unset_returns_sanitized_mac() {
+    TEST_ASSERT_EQUAL_STRING("ac0bfb6fa194",
+        Config::resolveDeviceSegment("", "AC:0B:FB:6F:A1:94").c_str());
+}
+
+void test_resolve_name_whitespace_only_falls_back_to_mac() {
+    TEST_ASSERT_EQUAL_STRING("ac0bfb6fa194",
+        Config::resolveDeviceSegment("   ", "AC:0B:FB:6F:A1:94").c_str());
+}
+
+void test_resolve_name_valid_returns_sanitized_name() {
+    TEST_ASSERT_EQUAL_STRING("home-upload",
+        Config::resolveDeviceSegment("home-upload", "AC:0B:FB:6F:A1:94").c_str());
+}
+
+void test_resolve_name_with_spaces_returns_sanitized_name() {
+    TEST_ASSERT_EQUAL_STRING("home-upload",
+        Config::resolveDeviceSegment("home upload!", "AC:0B:FB:6F:A1:94").c_str());
+}
+
+void test_resolve_mac_lowercased_and_stripped() {
+    TEST_ASSERT_EQUAL_STRING("deadbeefcafe",
+        Config::resolveDeviceSegment("", "DE:AD:BE:EF:CA:FE").c_str());
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_sanitize_valid_identifier_passes_through);
@@ -85,5 +112,10 @@ int main(int argc, char** argv) {
     RUN_TEST(test_sanitize_whitespace_only_returns_empty);
     RUN_TEST(test_sanitize_caps_at_32_chars);
     RUN_TEST(test_sanitize_trailing_hyphen_after_cap_is_trimmed);
+    RUN_TEST(test_resolve_name_unset_returns_sanitized_mac);
+    RUN_TEST(test_resolve_name_whitespace_only_falls_back_to_mac);
+    RUN_TEST(test_resolve_name_valid_returns_sanitized_name);
+    RUN_TEST(test_resolve_name_with_spaces_returns_sanitized_name);
+    RUN_TEST(test_resolve_mac_lowercased_and_stripped);
     return UNITY_END();
 }
