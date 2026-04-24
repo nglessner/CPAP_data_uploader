@@ -63,6 +63,10 @@ private:
     void handleApiConfigRawPost();  // POST /api/config-raw
     void handleApiConfigLock();     // POST /api/config-lock
 
+#ifdef ENABLE_O2RING_SYNC
+    void handleApiO2RingStatus();
+#endif
+
 #ifdef ENABLE_OTA_UPDATES
     // OTA handlers
     void handleOTAPage();
