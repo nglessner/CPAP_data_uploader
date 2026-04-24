@@ -6,6 +6,11 @@
 #include "WebStatus.h"
 #include <time.h>
 
+#ifdef ENABLE_O2RING_SYNC
+#include "O2RingStatus.h"
+#include "O2RingSync.h"  // for O2RingSyncResult enum -> human string
+#endif
+
 // Global trigger flags
 volatile bool g_triggerUploadFlag = false;
 volatile bool g_resetStateFlag = false;
@@ -171,7 +176,14 @@ bool CpapWebServer::begin() {
     server->on("/api/config-raw",  HTTP_GET,  [this]() { this->handleApiConfigRawGet(); });
     server->on("/api/config-raw",  HTTP_POST, [this]() { this->handleApiConfigRawPost(); });
     server->on("/api/config-lock", HTTP_POST, [this]() { this->handleApiConfigLock(); });
-    
+
+#ifdef ENABLE_O2RING_SYNC
+    server->on("/api/o2ring-status", [this]() {
+        if (this->redirectToIpIfMdnsRequest()) return;
+        this->handleApiO2RingStatus();
+    });
+#endif
+
 #ifdef ENABLE_OTA_UPDATES
     // OTA handlers
     server->on("/ota", [this]() {
@@ -1334,3 +1346,50 @@ void CpapWebServer::handleMonitorPage() {
     server->sendHeader("Connection", "close");
     server->send_P(200, "text/html; charset=utf-8", WEB_UI_HTML);
 }
+
+#ifdef ENABLE_O2RING_SYNC
+static const char* o2ringResultName(int code) {
+    switch ((O2RingSyncResult)code) {
+        case O2RingSyncResult::OK:                return "OK";
+        case O2RingSyncResult::DEVICE_NOT_FOUND:  return "DEVICE_NOT_FOUND";
+        case O2RingSyncResult::SMB_ERROR:         return "SMB_ERROR";
+        case O2RingSyncResult::BLE_ERROR:         return "BLE_ERROR";
+        case O2RingSyncResult::NOTHING_TO_SYNC:   return "NOTHING_TO_SYNC";
+        default:                                  return "UNKNOWN";
+    }
+}
+
+void CpapWebServer::handleApiO2RingStatus() {
+    O2RingStatus status;
+    status.load();
+    addCorsHeaders(server);
+
+    if (!status.hasData()) {
+        server->send(200, "application/json", "{\"has_data\":false}");
+        return;
+    }
+
+    char isoBuf[32] = "";
+    time_t t = (time_t)status.getLastUnix();
+    struct tm tm;
+    localtime_r(&t, &tm);
+    strftime(isoBuf, sizeof(isoBuf), "%Y-%m-%d %H:%M:%S", &tm);
+
+    char buf[256];
+    snprintf(buf, sizeof(buf),
+        "{\"has_data\":true"
+        ",\"last_attempt_unix\":%u"
+        ",\"last_attempt_iso\":\"%s\""
+        ",\"last_result\":\"%s\""
+        ",\"last_result_code\":%d"
+        ",\"files_synced\":%u"
+        ",\"last_filename\":\"%s\"}",
+        (unsigned)status.getLastUnix(),
+        isoBuf,
+        o2ringResultName(status.getLastResult()),
+        status.getLastResult(),
+        (unsigned)status.getFilesSynced(),
+        status.getLastFilename().c_str());
+    server->send(200, "application/json", buf);
+}
+#endif // ENABLE_O2RING_SYNC
