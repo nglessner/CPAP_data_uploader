@@ -167,6 +167,10 @@ public:
     const String& getO2RingPath() const;
     int getO2RingScanSeconds() const;
 
+    // Device segment helpers (also used for testing)
+    static String sanitizeDeviceSegment(const String& raw);
+    static String resolveDeviceSegment(const String& deviceName, const String& macAddress);
+
 private:
     // Helper methods for enum conversion
     static WifiTxPower parseWifiTxPower(const String& str);
