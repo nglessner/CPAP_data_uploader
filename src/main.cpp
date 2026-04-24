@@ -360,9 +360,28 @@ void setup() {
     // Start mDNS responder (allows access via http://cpap.local or configured hostname)
     wifiManager.startMDNS(config.getHostname());
     
-    // Apply WiFi power settings after connection is established
-    wifiManager.applyPowerSettings(config.getWifiTxPower(), config.getWifiPowerSaving());
+    // Apply WiFi power settings after connection is established.
+    // When O2Ring is active, ESP-IDF mandates WiFi modem sleep (PS_MIN_MODEM)
+    // for WiFi/BT coexistence. Calling WiFi.setSleep(false) with BT enabled
+    // aborts inside coex_core_enable. Override SAVE_NONE -> SAVE_MID when
+    // O2Ring is on. See admin/sleep#133.
+    WifiPowerSaving powerSaving = config.getWifiPowerSaving();
+#ifdef ENABLE_O2RING_SYNC
+    if (config.isO2RingEnabled() && powerSaving == WifiPowerSaving::SAVE_NONE) {
+        LOG_WARN("[O2Ring] Forcing WiFi power saving to MID — required for BT coex");
+        powerSaving = WifiPowerSaving::SAVE_MID;
+    }
+#endif
+    wifiManager.applyPowerSettings(config.getWifiTxPower(), powerSaving);
     LOG("WiFi power management settings applied");
+
+#ifdef ENABLE_O2RING_SYNC
+    // Pre-initialize NimBLE stack at boot, before SMB buffers / web server
+    // fragment the heap. Safe now that coex is satisfied by MIN_MODEM above.
+    if (config.isO2RingEnabled()) {
+        Esp32BleClient::initStack();
+    }
+#endif
 
     // Initialize uploader
     uploader = new FileUploader(&config, &wifiManager);
