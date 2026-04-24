@@ -1,6 +1,12 @@
 #include "Config.h"
 #include "Logger.h"
 
+#ifdef UNIT_TEST
+    #include "MockWiFi.h"
+#else
+    #include <WiFi.h>
+#endif
+
 // Define static constants for Preferences
 const char* Config::PREFS_NAMESPACE = "cpap_creds";
 const char* Config::PREFS_KEY_WIFI_PASS = "wifi_pass";
@@ -41,6 +47,10 @@ Config::Config() :
     o2ringDeviceName("O2Ring"),    // Default: match Wellue O2Ring advertised name prefix
     o2ringPath("oximetry/raw"),    // Default: staged oximetry artifact path on SMB share
     o2ringScanSeconds(30),         // Default: 30s BLE scan window
+
+    // Device identity defaults
+    deviceName(""),
+    deviceSegment(""),
 
     // Power management defaults
     cpuSpeedMhz(240),  // Default: 240MHz (full speed)
@@ -244,6 +254,8 @@ void Config::setConfigValue(String key, String value) {
     } else if (key == "O2RING_SCAN_SECONDS") {
         int v = value.toInt();
         if (v > 0 && v <= 120) o2ringScanSeconds = v;
+    } else if (key == "DEVICE_NAME") {
+        deviceName = value;
     } else {
         LOGF("WARN: Unknown config key '%s'. Skipping.", key.c_str());
     }
@@ -568,7 +580,12 @@ bool Config::loadFromSD(fs::FS &sd) {
         LOG_ERROR("Configuration validation failed");
         LOG("Check WIFI_SSID and ENDPOINT/CLOUD_CLIENT_ID settings");
     }
-    
+
+    // Resolve device segment for SMB path disambiguation (O2Ring uploads).
+    // Uses DEVICE_NAME if set, else WiFi MAC (colons stripped, lowercased).
+    deviceSegment = resolveDeviceSegment(deviceName, WiFi.macAddress());
+    LOG_DEBUGF("[Config] Device segment resolved to: %s", deviceSegment.c_str());
+
     return isValid;
 }
 
@@ -659,6 +676,9 @@ bool Config::isO2RingEnabled() const { return o2ringEnabled; }
 const String& Config::getO2RingDeviceName() const { return o2ringDeviceName; }
 const String& Config::getO2RingPath() const { return o2ringPath; }
 int Config::getO2RingScanSeconds() const { return o2ringScanSeconds; }
+
+const String& Config::getDeviceName() const { return deviceName; }
+const String& Config::getDeviceSegment() const { return deviceSegment; }
 
 String Config::sanitizeDeviceSegment(const String& raw) {
     String out;
