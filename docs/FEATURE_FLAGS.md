@@ -76,6 +76,8 @@ Enables BLE sync with Wellue O2Ring-S after each CPAP upload cycle. Downloads st
 
 **NVS dedup storage:** Synced filenames are tracked in NVS namespace `o2ring`, key `synced`, as a comma-joined string. Each sync cycle prunes this set to the O2Ring's current on-device file list (reported via the BLE `CMD_INFO` response's `FileList` field), so the stored string is bounded by the ring's capacity (~50 entries, well under the 4000-byte `nvs_set_str` per-entry ceiling). Files that roll off the ring are forgotten by design — if the ring re-reports a filename matching a previously-synced one after a rollover gap, it will be re-downloaded and re-uploaded.
 
+**Last-sync status surface:** When enabled, the firmware exposes `GET /api/o2ring-status` (JSON) and a dashboard card showing the timestamp, result, files-synced count, and most-recent filename from the most recent sync attempt. Persisted in NVS namespace `o2ring_stat`, key `last` — survives power cycles.
+
 ## How to Enable/Disable Backends
 
 ### Method 1: Edit platformio.ini (Recommended)
