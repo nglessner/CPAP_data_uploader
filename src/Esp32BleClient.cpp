@@ -6,6 +6,17 @@
 uint8_t          Esp32BleClient::_notifyBuf[1024];
 volatile size_t  Esp32BleClient::_notifyLen  = 0;
 volatile bool    Esp32BleClient::_notifyReady = false;
+bool             Esp32BleClient::bleInitialized = false;
+
+void Esp32BleClient::initStack() {
+    if (bleInitialized) return;
+    LOGF("[O2Ring BLE] NimBLEDevice::init (free=%u, max_alloc=%u)",
+         (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+    NimBLEDevice::init("");
+    bleInitialized = true;
+    LOGF("[O2Ring BLE] NimBLE stack ready (free=%u, max_alloc=%u)",
+         (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+}
 
 Esp32BleClient::Esp32BleClient()
     : client(nullptr), writeChar(nullptr), notifyChar(nullptr), _connected(false) {}
@@ -14,7 +25,7 @@ Esp32BleClient::~Esp32BleClient() {
     disconnect();
 }
 
-void Esp32BleClient::notifyCallback(BLERemoteCharacteristic* pChar,
+void Esp32BleClient::notifyCallback(NimBLERemoteCharacteristic* pChar,
                                      uint8_t* pData, size_t length, bool isNotify) {
     size_t space = sizeof(_notifyBuf) - _notifyLen;
     size_t toCopy = length < space ? length : space;
@@ -32,19 +43,17 @@ void Esp32BleClient::notifyCallback(BLERemoteCharacteristic* pChar,
 }
 
 bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
-    static bool bleInitialized = false;
-    if (!bleInitialized) {
-        BLEDevice::init("");
-        bleInitialized = true;
-    }
-    BLEScan* scan = BLEDevice::getScan();
+    initStack();  // idempotent; lazy fallback if boot-time init was skipped
+    NimBLEScan* scan = NimBLEDevice::getScan();
     scan->setActiveScan(true);
-    BLEScanResults results = scan->start((int)scanSecs, false);
+    scan->setInterval(100);
+    scan->setWindow(99);
+    NimBLEScanResults results = scan->start((uint32_t)scanSecs, false);
 
-    BLEAddress targetAddr("");
+    NimBLEAddress targetAddr;
     bool found = false;
     for (int i = 0; i < results.getCount(); i++) {
-        BLEAdvertisedDevice d = results.getDevice(i);
+        NimBLEAdvertisedDevice d = results.getDevice(i);
         if (d.haveName() && String(d.getName().c_str()).startsWith(namePrefix)) {
             targetAddr = d.getAddress();
             found = true;
@@ -56,14 +65,14 @@ bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
     scan->clearResults();
     if (!found) return false;
 
-    client = BLEDevice::createClient();
+    client = NimBLEDevice::createClient();
     if (!client->connect(targetAddr)) {
         LOG_WARN("[O2Ring BLE] Connection failed");
         disconnect();
         return false;
     }
 
-    BLERemoteService* svc = client->getService(O2RingProtocol::SERVICE_UUID);
+    NimBLERemoteService* svc = client->getService(O2RingProtocol::SERVICE_UUID);
     if (!svc) {
         LOG_WARN("[O2Ring BLE] Service not found");
         disconnect();
@@ -78,7 +87,13 @@ bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
         return false;
     }
 
-    notifyChar->registerForNotify(notifyCallback);
+    // NimBLE v1.4 registerForNotify signature:
+    //   registerForNotify(notify_callback, bool notifications=true, bool response=false)
+    if (!notifyChar->registerForNotify(notifyCallback)) {
+        LOG_WARN("[O2Ring BLE] registerForNotify failed");
+        disconnect();
+        return false;
+    }
     _connected = true;
     LOG("[O2Ring BLE] Connected and subscribed");
     return true;
@@ -117,7 +132,8 @@ void Esp32BleClient::disconnect() {
         if (client->isConnected()) {
             client->disconnect();
         }
-        delete client;
+        // NimBLE-Arduino manages client lifetime via NimBLEDevice::deleteClient().
+        NimBLEDevice::deleteClient(client);
         client = nullptr;
     }
     _connected = false;
