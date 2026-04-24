@@ -1,6 +1,7 @@
 #include "O2RingSync.h"
 #include "O2RingProtocol.h"
 #include "Logger.h"
+#include "O2RingStatus.h"
 #include <vector>
 
 O2RingSync::O2RingSync(Config* cfg, IBleClient* bleClient)
@@ -122,14 +123,22 @@ bool O2RingSync::downloadAndUpload(const String& filename) {
 O2RingSyncResult O2RingSync::run() {
     LOG("[O2Ring] Starting sync");
 
-    if (!ble->connect(config->getO2RingDeviceName(), config->getO2RingScanSeconds())) {
+    O2RingStatus status;
+    status.load();
+
+    if (!ble->connect(config->getO2RingDeviceName(),
+                      config->getO2RingScanSeconds())) {
         LOG_WARN("[O2Ring] Device not found");
+        status.recordPreservingFilename((int)O2RingSyncResult::DEVICE_NOT_FOUND);
+        status.save();
         return O2RingSyncResult::DEVICE_NOT_FOUND;
     }
     LOG("[O2Ring] Connected to O2Ring-S");
 
     if (!sendCommand(O2RingProtocol::CMD_INFO, 0, nullptr, 0)) {
         ble->disconnect();
+        status.recordPreservingFilename((int)O2RingSyncResult::BLE_ERROR);
+        status.save();
         return O2RingSyncResult::BLE_ERROR;
     }
 
@@ -137,6 +146,8 @@ O2RingSyncResult O2RingSync::run() {
     size_t respLen = 0;
     if (!receiveResponse(respBuf, sizeof(respBuf), respLen, 8000)) {
         ble->disconnect();
+        status.recordPreservingFilename((int)O2RingSyncResult::BLE_ERROR);
+        status.save();
         return O2RingSyncResult::BLE_ERROR;
     }
 
@@ -144,9 +155,19 @@ O2RingSyncResult O2RingSync::run() {
     uint16_t dataLen = (uint16_t)respBuf[5] | ((uint16_t)respBuf[6] << 8);
     if (!O2RingProtocol::parseInfoFileList(respBuf + 7, dataLen, fileList)) {
         ble->disconnect();
+        status.recordPreservingFilename((int)O2RingSyncResult::BLE_ERROR);
+        status.save();
         return O2RingSyncResult::BLE_ERROR;
     }
     LOGF("[O2Ring] Device reports %u file(s)", (unsigned)fileList.size());
+
+    // Compute the lexicographic max of the observed FileList so status can
+    // show "last filename seen on device" — a liveness signal even on
+    // NOTHING_TO_SYNC. Empty FileList -> empty string.
+    String latestOnDevice;
+    for (const auto& f : fileList) {
+        if (latestOnDevice < f) latestOnDevice = f;
+    }
 
     state.load();
     // Bound the dedup set to what the device currently reports. History outside
@@ -163,22 +184,30 @@ O2RingSyncResult O2RingSync::run() {
     if (toDownload.empty()) {
         LOG("[O2Ring] Nothing new to sync");
         ble->disconnect();
+        status.record((int)O2RingSyncResult::NOTHING_TO_SYNC, 0, latestOnDevice);
+        status.save();
         return O2RingSyncResult::NOTHING_TO_SYNC;
     }
 
+    uint16_t synced = 0;
     bool anyFailed = false;
     for (auto& f : toDownload) {
         if (downloadAndUpload(f)) {
             state.markSeen(f);
             state.save();
+            synced++;
             LOGF("[O2Ring] Synced: %s", f.c_str());
         } else {
-            // Leave file unmarked so it retries next sync cycle. Continue to attempt remaining files.
             anyFailed = true;
             LOGF("[O2Ring] Failed to sync: %s", f.c_str());
         }
     }
 
     ble->disconnect();
-    return anyFailed ? O2RingSyncResult::BLE_ERROR : O2RingSyncResult::OK;
+    O2RingSyncResult result = anyFailed
+        ? O2RingSyncResult::BLE_ERROR
+        : O2RingSyncResult::OK;
+    status.record((int)result, synced, latestOnDevice);
+    status.save();
+    return result;
 }
