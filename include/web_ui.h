@@ -93,6 +93,12 @@ nav button:hover:not(.act){background:#3a5a7e}
 <div class=row><span class=k>Endpoint</span><span id=d-ep class=v></span></div>
 <div class=row><span class=k>Uptime</span><span id=d-up class=v></span></div>
 </div>
+<div class=card><h2>O2Ring Sync</h2>
+<div class=row><span class=k>Last attempt</span><span id=d-o2r-when class=v>—</span></div>
+<div class=row><span class=k>Result</span><span id=d-o2r-res class=v>—</span></div>
+<div class=row><span class=k>Files synced</span><span id=d-o2r-n class=v>—</span></div>
+<div class=row><span class=k>Last file on ring</span><span id=d-o2r-fn class=v>—</span></div>
+</div>
 </div>
 <div class=cards>
 <div class=card style="grid-column:1/-1"><h2>Upload Progress</h2>
@@ -295,6 +301,19 @@ function pollStatus(){
   fetch('/api/status',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
     renderStatus(d);
   }).catch(function(){set('d-st','Offline');});
+  fetch('/api/o2ring-status').then(function(r){return r.ok?r.json():null}).then(function(o){
+    var w=document.getElementById('d-o2r-when');
+    var re=document.getElementById('d-o2r-res');
+    var n=document.getElementById('d-o2r-n');
+    var fn=document.getElementById('d-o2r-fn');
+    if(!o||!o.has_data){w.textContent='Never';re.textContent='—';n.textContent='—';fn.textContent='—';return;}
+    w.textContent=o.last_attempt_iso;
+    re.textContent=o.last_result;
+    n.textContent=String(o.files_synced);
+    fn.textContent=o.last_filename||'—';
+  }).catch(function(){
+    document.getElementById('d-o2r-when').textContent='Unavailable';
+  });
 }
 function startStatusPoll(){if(!statusTimer){pollStatus();statusTimer=setInterval(pollStatus,3000);}}
 
