@@ -80,7 +80,11 @@ private:
     String o2ringDeviceName;
     String o2ringPath;
     int o2ringScanSeconds;
-    
+
+    // Device identity (used for SMB path disambiguation)
+    String deviceName;     // Raw user-supplied value (may be empty)
+    String deviceSegment;  // Computed once during loadFromSD
+
     // Preferences object for secure credential storage
     Preferences preferences;
     
@@ -166,6 +170,10 @@ public:
     const String& getO2RingDeviceName() const;
     const String& getO2RingPath() const;
     int getO2RingScanSeconds() const;
+
+    // Device identity getters
+    const String& getDeviceName() const;
+    const String& getDeviceSegment() const;
 
     // Device segment helpers (also used for testing)
     static String sanitizeDeviceSegment(const String& raw);
