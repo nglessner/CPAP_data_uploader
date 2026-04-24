@@ -659,3 +659,43 @@ bool Config::isO2RingEnabled() const { return o2ringEnabled; }
 const String& Config::getO2RingDeviceName() const { return o2ringDeviceName; }
 const String& Config::getO2RingPath() const { return o2ringPath; }
 int Config::getO2RingScanSeconds() const { return o2ringScanSeconds; }
+
+String Config::sanitizeDeviceSegment(const String& raw) {
+    String out;
+    bool lastWasHyphen = false;
+    for (size_t i = 0; i < raw.length(); ++i) {
+        char c = raw.charAt(i);
+        bool keep = (c >= 'a' && c <= 'z') ||
+                    (c >= 'A' && c <= 'Z') ||
+                    (c >= '0' && c <= '9') ||
+                    c == '_' || c == '-';
+        if (keep) {
+            char buf[2] = {c, '\0'};
+            out += String(buf);
+            lastWasHyphen = (c == '-');
+        } else {
+            if (!lastWasHyphen) {
+                out += String("-");
+                lastWasHyphen = true;
+            }
+            // Else: collapse consecutive non-keep chars into a single hyphen
+        }
+    }
+    // Trim leading hyphens
+    while (out.length() > 0 && out.charAt(0) == '-') {
+        out = out.substring(1);
+    }
+    // Trim trailing hyphens
+    while (out.length() > 0 && out.charAt(out.length() - 1) == '-') {
+        out = out.substring(0, out.length() - 1);
+    }
+    // Cap at 32 chars
+    if (out.length() > 32) {
+        out = out.substring(0, 32);
+    }
+    // Re-trim trailing hyphen in case truncation left one
+    while (out.length() > 0 && out.charAt(out.length() - 1) == '-') {
+        out = out.substring(0, out.length() - 1);
+    }
+    return out;
+}
