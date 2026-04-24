@@ -699,3 +699,23 @@ String Config::sanitizeDeviceSegment(const String& raw) {
     }
     return out;
 }
+
+String Config::resolveDeviceSegment(const String& deviceName,
+                                    const String& macAddress) {
+    String sanitized = sanitizeDeviceSegment(deviceName);
+    if (sanitized.length() > 0) {
+        return sanitized;
+    }
+    // Fallback: WiFi MAC, colons stripped, lowercased (manually for portability
+    // across the mock String used in native unit tests, which lacks replace/toLowerCase).
+    String mac;
+    for (size_t i = 0; i < macAddress.length(); ++i) {
+        char c = macAddress.charAt(i);
+        if (c == ':') continue;
+        if (c >= 'A' && c <= 'Z') c = c - 'A' + 'a';
+        // Append as a 1-char String: mock String has no String(char) ctor and
+        // `+=` on a char coerces via String(int), storing the numeric code.
+        mac += String(&c, 1);
+    }
+    return sanitizeDeviceSegment(mac);
+}
