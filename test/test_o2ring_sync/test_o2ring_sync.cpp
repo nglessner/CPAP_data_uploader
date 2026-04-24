@@ -5,10 +5,13 @@
 #include "../mocks/MockPreferences.h"
 #include "../mocks/MockBleClient.h"
 #include "../mocks/MockWiFi.h"
+#include "../mocks/MockTime.h"
 
 #include "O2RingProtocol.h"
 #include "O2RingState.h"
 #include "../../src/O2RingState.cpp"
+#include "O2RingStatus.h"
+#include "../../src/O2RingStatus.cpp"
 #include "O2RingSync.h"
 #include "../../src/O2RingSync.cpp"
 
@@ -30,6 +33,7 @@ std::vector<uint8_t> makeResponse(uint8_t cmd, uint16_t block,
 
 void setUp(void) {
     Preferences::clearAll();
+    MockTimeState::reset();
     mockSD.clear();
     mockBle = new MockBleClient();
     cfg = new Config();
@@ -119,11 +123,82 @@ void test_stale_seen_entries_pruned_after_info() {
     TEST_ASSERT_FALSE(reloaded.hasSeen("20250202000000.vld"));
 }
 
+void test_status_recorded_on_device_not_found() {
+    MockTimeState::setTime(1777000000);
+    mockBle->shouldConnect = false;
+
+    O2RingSync sync(cfg, mockBle);
+    sync.run();
+
+    O2RingStatus status;
+    status.load();
+    TEST_ASSERT_TRUE(status.hasData());
+    TEST_ASSERT_EQUAL_UINT32(1777000000, status.getLastUnix());
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::DEVICE_NOT_FOUND,
+                          status.getLastResult());
+    TEST_ASSERT_EQUAL_UINT(0, status.getFilesSynced());
+    // No INFO response, so no filename should be set on a fresh record
+    TEST_ASSERT_EQUAL_STRING("", status.getLastFilename().c_str());
+}
+
+void test_status_records_filename_on_nothing_to_sync() {
+    MockTimeState::setTime(1777035170);
+    const char* json = R"({"CurBAT":"75%","FileList":"20260115221045.vld,20260116233312.vld","Model":"O2Ring","SN":"1234"})";
+    mockBle->enqueueResponse(makeResponse(O2RingProtocol::CMD_INFO, 0,
+        (const uint8_t*)json, (uint16_t)strlen(json)));
+
+    // Pre-mark both files as already seen so we get NOTHING_TO_SYNC
+    O2RingState state;
+    state.load();
+    state.markSeen("20260115221045.vld");
+    state.markSeen("20260116233312.vld");
+    state.save();
+
+    O2RingSync sync(cfg, mockBle);
+    sync.run();
+
+    O2RingStatus status;
+    status.load();
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::NOTHING_TO_SYNC,
+                          status.getLastResult());
+    // lexicographic max of the FileList
+    TEST_ASSERT_EQUAL_STRING("20260116233312.vld",
+                             status.getLastFilename().c_str());
+}
+
+void test_status_preserves_filename_when_pre_info_failure() {
+    // Prime a previous successful observation
+    {
+        MockTimeState::setTime(1777000000);
+        O2RingStatus s;
+        s.load();
+        s.record((int)O2RingSyncResult::NOTHING_TO_SYNC, 0,
+                 "20260116233312.vld");
+        s.save();
+    }
+    // Now run a sync that fails before INFO
+    MockTimeState::setTime(1777035170);
+    mockBle->shouldConnect = false;
+
+    O2RingSync sync(cfg, mockBle);
+    sync.run();
+
+    O2RingStatus status;
+    status.load();
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::DEVICE_NOT_FOUND,
+                          status.getLastResult());
+    TEST_ASSERT_EQUAL_STRING("20260116233312.vld",
+                             status.getLastFilename().c_str());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_device_not_found_returns_error);
     RUN_TEST(test_nothing_to_sync_when_all_seen);
     RUN_TEST(test_info_command_sent_on_connect);
     RUN_TEST(test_stale_seen_entries_pruned_after_info);
+    RUN_TEST(test_status_recorded_on_device_not_found);
+    RUN_TEST(test_status_records_filename_on_nothing_to_sync);
+    RUN_TEST(test_status_preserves_filename_when_pre_info_failure);
     return UNITY_END();
 }
