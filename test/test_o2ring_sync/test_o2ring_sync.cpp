@@ -61,6 +61,7 @@ void tearDown(void) {
 
 void test_device_not_found_returns_error() {
     mockBle->shouldConnect = false;
+    mockBle->deviceFoundFlag = false;  // genuine empty-scan
     O2RingSync sync(cfg, mockBle);
     O2RingSyncResult result = sync.run();
     TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::DEVICE_NOT_FOUND, (int)result);
@@ -126,6 +127,7 @@ void test_stale_seen_entries_pruned_after_info() {
 void test_status_recorded_on_device_not_found() {
     MockTimeState::setTime(1777000000);
     mockBle->shouldConnect = false;
+    mockBle->deviceFoundFlag = false;  // genuine empty-scan
 
     O2RingSync sync(cfg, mockBle);
     sync.run();
@@ -179,6 +181,7 @@ void test_status_preserves_filename_when_pre_info_failure() {
     // Now run a sync that fails before INFO
     MockTimeState::setTime(1777035170);
     mockBle->shouldConnect = false;
+    mockBle->deviceFoundFlag = false;  // simulate genuine empty-scan to keep DEVICE_NOT_FOUND assertion
 
     O2RingSync sync(cfg, mockBle);
     sync.run();
