@@ -1355,6 +1355,7 @@ static const char* o2ringResultName(int code) {
         case O2RingSyncResult::SMB_ERROR:         return "SMB_ERROR";
         case O2RingSyncResult::BLE_ERROR:         return "BLE_ERROR";
         case O2RingSyncResult::NOTHING_TO_SYNC:   return "NOTHING_TO_SYNC";
+        case O2RingSyncResult::CONNECT_FAILED:    return "CONNECT_FAILED";
         default:                                  return "UNKNOWN";
     }
 }
