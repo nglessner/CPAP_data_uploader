@@ -23,6 +23,13 @@ public:
 
     virtual void disconnect() = 0;
     virtual bool isConnected() const = 0;
+
+    // Returns true iff the most recent connect() observed a name-prefix
+    // match in scan results — regardless of whether the subsequent GATT
+    // steps succeeded. Reset to false at the start of each connect()
+    // call. Callers query it only after connect() returned false to
+    // distinguish empty-scan from post-scan failure.
+    virtual bool wasDeviceFound() const = 0;
 };
 
 #endif // IBLE_CLIENT_H
