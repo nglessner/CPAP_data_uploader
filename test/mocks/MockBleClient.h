@@ -22,6 +22,10 @@ class MockBleClient : public IBleClient {
 public:
     bool shouldConnect = true;
     bool connected = false;
+    // Default true: a mock with shouldConnect=true represents a found
+    // and connected device. Tests that simulate genuine "scan miss"
+    // must set this to false explicitly.
+    bool deviceFoundFlag = true;
 
     // Queue of responses to return from readResponse(), in order.
     std::queue<std::vector<uint8_t>> responses;
@@ -52,6 +56,7 @@ public:
 
     void disconnect() override { connected = false; }
     bool isConnected() const override { return connected; }
+    bool wasDeviceFound() const override { return deviceFoundFlag; }
 
     // Helper: enqueue a raw response packet
     void enqueueResponse(const std::vector<uint8_t>& resp) {

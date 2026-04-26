@@ -24,6 +24,7 @@ public:
                       uint32_t timeoutMs) override;
     void disconnect() override;
     bool isConnected() const override;
+    bool wasDeviceFound() const override { return _lastScanFound; }
 
     // Bring up the NimBLE stack. Idempotent. Call once at boot (after WiFi)
     // when O2Ring is enabled — FSM-time lazy init fails inside
@@ -38,6 +39,7 @@ private:
     NimBLERemoteCharacteristic* writeChar;
     NimBLERemoteCharacteristic* notifyChar;
     bool _connected;
+    bool _lastScanFound = false;
 
     // Notification accumulation buffer (used by static callback)
     static uint8_t          _notifyBuf[1024];

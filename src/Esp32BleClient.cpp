@@ -43,6 +43,7 @@ void Esp32BleClient::notifyCallback(NimBLERemoteCharacteristic* pChar,
 }
 
 bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
+    _lastScanFound = false;
     initStack();  // idempotent; lazy fallback if boot-time init was skipped
     NimBLEScan* scan = NimBLEDevice::getScan();
     scan->setActiveScan(true);
