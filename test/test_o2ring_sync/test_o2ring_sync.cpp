@@ -194,6 +194,30 @@ void test_status_preserves_filename_when_pre_info_failure() {
                              status.getLastFilename().c_str());
 }
 
+void test_connect_failed_returns_error_when_scan_hit_but_connect_failed() {
+    mockBle->shouldConnect = false;
+    mockBle->deviceFoundFlag = true;  // scan saw the device, GATT rejected
+    O2RingSync sync(cfg, mockBle);
+    O2RingSyncResult result = sync.run();
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::CONNECT_FAILED, (int)result);
+}
+
+void test_status_recorded_on_connect_failed() {
+    MockTimeState::setTime(1777035100);
+    mockBle->shouldConnect = false;
+    mockBle->deviceFoundFlag = true;
+
+    O2RingSync sync(cfg, mockBle);
+    sync.run();
+
+    O2RingStatus status;
+    status.load();
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::CONNECT_FAILED,
+                          status.getLastResult());
+    TEST_ASSERT_EQUAL_UINT32(1777035100u, status.getLastUnix());
+    TEST_ASSERT_EQUAL_UINT16(0u, status.getFilesSynced());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_device_not_found_returns_error);
@@ -203,5 +227,7 @@ int main() {
     RUN_TEST(test_status_recorded_on_device_not_found);
     RUN_TEST(test_status_records_filename_on_nothing_to_sync);
     RUN_TEST(test_status_preserves_filename_when_pre_info_failure);
+    RUN_TEST(test_connect_failed_returns_error_when_scan_hit_but_connect_failed);
+    RUN_TEST(test_status_recorded_on_connect_failed);
     return UNITY_END();
 }

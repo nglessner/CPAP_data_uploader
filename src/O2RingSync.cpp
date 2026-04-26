@@ -128,10 +128,17 @@ O2RingSyncResult O2RingSync::run() {
 
     if (!ble->connect(config->getO2RingDeviceName(),
                       config->getO2RingScanSeconds())) {
-        LOG_WARN("[O2Ring] Device not found");
-        status.recordPreservingFilename((int)O2RingSyncResult::DEVICE_NOT_FOUND);
+        O2RingSyncResult code;
+        if (ble->wasDeviceFound()) {
+            LOG_WARN("[O2Ring] Device found but connection failed");
+            code = O2RingSyncResult::CONNECT_FAILED;
+        } else {
+            LOG_WARN("[O2Ring] Device not found");
+            code = O2RingSyncResult::DEVICE_NOT_FOUND;
+        }
+        status.recordPreservingFilename((int)code);
         status.save();
-        return O2RingSyncResult::DEVICE_NOT_FOUND;
+        return code;
     }
     LOG("[O2Ring] Connected to O2Ring-S");
 
