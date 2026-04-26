@@ -18,6 +18,7 @@ static const uint8_t CMD_INFO       = 0x14;
 static const uint8_t CMD_FILE_OPEN  = 0x03;
 static const uint8_t CMD_FILE_READ  = 0x04;
 static const uint8_t CMD_FILE_CLOSE = 0x05;
+static const uint8_t CMD_CONFIG     = 0x16;
 
 // CRC-8 (Wellue variant) — computed over all packet bytes except the CRC itself
 inline uint8_t crc8(const uint8_t* data, size_t len) {
@@ -122,6 +123,20 @@ inline bool parseVldHeader(const uint8_t* buf, size_t bufLen, VldHeader& h) {
     h.second       = buf[8];
     h.durationSecs = (uint16_t)buf[18] | ((uint16_t)buf[19] << 8);
     return h.version == 3;
+}
+
+// Format {"SetTIME":"YYYY-MM-DD,HH:MM:SS"} into out for CMD_CONFIG payload.
+// Caller is responsible for converting time_t → struct tm with the correct
+// timezone (firmware uses localtime_r; see ScheduleManager configTime).
+// Returns bytes written (33 on success), 0 if outCap is too small or on
+// snprintf failure.
+inline size_t formatSetTimePayload(const struct tm& tm,
+                                    char* out, size_t outCap) {
+    int n = snprintf(out, outCap,
+        "{\"SetTIME\":\"%04d-%02d-%02d,%02d:%02d:%02d\"}",
+        tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+        tm.tm_hour, tm.tm_min, tm.tm_sec);
+    return (n < 0 || (size_t)n >= outCap) ? 0 : (size_t)n;
 }
 
 } // namespace O2RingProtocol
