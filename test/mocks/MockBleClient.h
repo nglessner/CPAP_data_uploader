@@ -33,6 +33,11 @@ public:
     // Last packet written via writeChunked (for assertions).
     std::vector<uint8_t> lastWritten;
 
+    // Full chronological history of writeChunked() calls. Each entry is the
+    // bytes of one packet. Lets tests assert on packets that lastWritten
+    // would otherwise have been overwritten by subsequent commands.
+    std::vector<std::vector<uint8_t>> writeHistory;
+
     bool connect(const String& namePrefix, uint32_t scanSecs) override {
         connected = shouldConnect;
         return connected;
@@ -40,6 +45,7 @@ public:
 
     bool writeChunked(const uint8_t* data, size_t len) override {
         lastWritten.assign(data, data + len);
+        writeHistory.emplace_back(data, data + len);
         return true;
     }
 
