@@ -176,6 +176,39 @@ O2RingSyncResult O2RingSync::run() {
         if (latestOnDevice < f) latestOnDevice = f;
     }
 
+    // Set the ring's wall-clock from the ESP32's localtime. Best-effort:
+    // any failure here logs a warning but does not abort the sync — file
+    // pulls don't depend on the clock being correct, and the ring will
+    // accept the next sync's SetTIME write just as well.
+    {
+        time_t now = time(nullptr);
+        struct tm tmnow;
+        char payload[64];
+        size_t payloadLen = 0;
+        if (localtime_r(&now, &tmnow) != nullptr) {
+            payloadLen = O2RingProtocol::formatSetTimePayload(
+                tmnow, payload, sizeof(payload));
+        }
+        if (payloadLen == 0) {
+            LOG_WARN("[O2Ring] SetTIME payload format failed");
+        } else if (!sendCommand(O2RingProtocol::CMD_CONFIG, 0,
+                                (const uint8_t*)payload,
+                                (uint16_t)payloadLen)) {
+            LOG_WARN("[O2Ring] SetTIME write failed");
+        } else {
+            uint8_t respBuf[64];
+            size_t respLen = 0;
+            if (!receiveResponse(respBuf, sizeof(respBuf), respLen, 2000)) {
+                LOG_WARN("[O2Ring] SetTIME response timeout");
+            } else if (respLen >= 2
+                       && respBuf[1] != O2RingProtocol::CMD_CONFIG) {
+                LOG_WARN("[O2Ring] SetTIME response cmd mismatch");
+            } else {
+                LOG("[O2Ring] SetTIME ok");
+            }
+        }
+    }
+
     state.load();
     // Bound the dedup set to what the device currently reports. History outside
     // the ring's on-device file list is dead weight and, unpruned, would grow
