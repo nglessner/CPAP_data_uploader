@@ -93,10 +93,12 @@ void test_info_command_sent_on_connect() {
     O2RingSync sync(cfg, mockBle);
     sync.run();
 
-    // First byte of lastWritten should be 0xAA and CMD should be CMD_INFO
-    TEST_ASSERT_GREATER_THAN(0, (int)mockBle->lastWritten.size());
-    TEST_ASSERT_EQUAL_UINT8(0xAA, mockBle->lastWritten[0]);
-    TEST_ASSERT_EQUAL_UINT8(O2RingProtocol::CMD_INFO, mockBle->lastWritten[1]);
+    // First written packet must be CMD_INFO. Assert against writeHistory[0]
+    // so subsequent writes (e.g., SetTIME after INFO) don't clobber the
+    // assertion target.
+    TEST_ASSERT_GREATER_THAN(0, (int)mockBle->writeHistory.size());
+    TEST_ASSERT_EQUAL_UINT8(0xAA, mockBle->writeHistory[0][0]);
+    TEST_ASSERT_EQUAL_UINT8(O2RingProtocol::CMD_INFO, mockBle->writeHistory[0][1]);
 }
 
 void test_stale_seen_entries_pruned_after_info() {
