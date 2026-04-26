@@ -58,6 +58,7 @@ bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
         if (d.haveName() && String(d.getName().c_str()).startsWith(namePrefix)) {
             targetAddr = d.getAddress();
             found = true;
+            _lastScanFound = true;
             LOGF("[O2Ring BLE] Found device: %s (%s)",
                  d.getName().c_str(), d.getAddress().toString().c_str());
             break;
