@@ -11,11 +11,12 @@
 #endif
 
 enum class O2RingSyncResult {
-    OK,
-    DEVICE_NOT_FOUND,
-    SMB_ERROR,
-    BLE_ERROR,
-    NOTHING_TO_SYNC
+    OK,                // 0
+    DEVICE_NOT_FOUND,  // 1
+    SMB_ERROR,         // 2
+    BLE_ERROR,         // 3
+    NOTHING_TO_SYNC,   // 4
+    CONNECT_FAILED     // 5 — scan succeeded, GATT connect failed
 };
 
 class O2RingSync {
