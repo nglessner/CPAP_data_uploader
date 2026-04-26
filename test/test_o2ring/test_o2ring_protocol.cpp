@@ -130,6 +130,50 @@ void test_parse_file_open_too_short() {
     TEST_ASSERT_FALSE(ok);
 }
 
+void test_format_set_time_payload_basic() {
+    struct tm tm = {};
+    tm.tm_year = 2026 - 1900;
+    tm.tm_mon  = 4 - 1;
+    tm.tm_mday = 26;
+    tm.tm_hour = 19;
+    tm.tm_min  = 30;
+    tm.tm_sec  = 45;
+
+    char buf[64];
+    size_t n = O2RingProtocol::formatSetTimePayload(tm, buf, sizeof(buf));
+
+    TEST_ASSERT_EQUAL_INT(33, (int)n);
+    TEST_ASSERT_EQUAL_STRING("{\"SetTIME\":\"2026-04-26,19:30:45\"}", buf);
+}
+
+void test_format_set_time_payload_buffer_too_small() {
+    struct tm tm = {};
+    tm.tm_year = 2026 - 1900;
+    tm.tm_mon  = 0;
+    tm.tm_mday = 1;
+
+    char buf[16];  // 33 chars + NUL won't fit
+    size_t n = O2RingProtocol::formatSetTimePayload(tm, buf, sizeof(buf));
+
+    TEST_ASSERT_EQUAL_INT(0, (int)n);
+}
+
+void test_format_set_time_payload_zero_pads_single_digits() {
+    struct tm tm = {};
+    tm.tm_year = 2026 - 1900;
+    tm.tm_mon  = 1 - 1;
+    tm.tm_mday = 3;
+    tm.tm_hour = 4;
+    tm.tm_min  = 5;
+    tm.tm_sec  = 6;
+
+    char buf[64];
+    size_t n = O2RingProtocol::formatSetTimePayload(tm, buf, sizeof(buf));
+
+    TEST_ASSERT_EQUAL_INT(33, (int)n);
+    TEST_ASSERT_EQUAL_STRING("{\"SetTIME\":\"2026-01-03,04:05:06\"}", buf);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_crc8_empty_input);
@@ -144,5 +188,8 @@ int main() {
     RUN_TEST(test_parse_file_open_success);
     RUN_TEST(test_parse_file_open_error_status);
     RUN_TEST(test_parse_file_open_too_short);
+    RUN_TEST(test_format_set_time_payload_basic);
+    RUN_TEST(test_format_set_time_payload_buffer_too_small);
+    RUN_TEST(test_format_set_time_payload_zero_pads_single_digits);
     return UNITY_END();
 }
