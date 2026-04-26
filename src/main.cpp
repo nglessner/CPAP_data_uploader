@@ -850,6 +850,9 @@ void handleO2RingSync() {
         case O2RingSyncResult::BLE_ERROR:
             LOG_WARN("[FSM] O2Ring sync: BLE error");
             break;
+        case O2RingSyncResult::CONNECT_FAILED:
+            LOG_WARN("[FSM] O2Ring sync: device found but GATT connect failed");
+            break;
     }
 
     cooldownStartedAt = millis();
