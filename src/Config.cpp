@@ -44,7 +44,7 @@ Config::Config() :
 
     // O2Ring BLE sync defaults
     o2ringEnabled(false),          // Default: disabled
-    o2ringDeviceName("O2Ring"),    // Default: match Wellue O2Ring advertised name prefix
+    o2ringDeviceName("T8520"),    // Default: match Viatom O2Ring-S advertised name prefix
     o2ringPath("oximetry/raw"),    // Default: staged oximetry artifact path on SMB share
     o2ringScanSeconds(30),         // Default: 30s BLE scan window
 

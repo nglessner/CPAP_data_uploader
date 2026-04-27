@@ -921,7 +921,7 @@ void test_config_power_management_custom() {
 void test_o2ring_defaults() {
     Config config;
     TEST_ASSERT_FALSE(config.isO2RingEnabled());
-    TEST_ASSERT_EQUAL_STRING("O2Ring", config.getO2RingDeviceName().c_str());
+    TEST_ASSERT_EQUAL_STRING("T8520", config.getO2RingDeviceName().c_str());
     TEST_ASSERT_EQUAL_STRING("oximetry/raw", config.getO2RingPath().c_str());
     TEST_ASSERT_EQUAL_INT(30, config.getO2RingScanSeconds());
 }
