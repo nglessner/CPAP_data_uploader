@@ -1,3 +1,5 @@
+#ifdef ENABLE_O2RING_SYNC
+
 #include "O2RingStatus.h"
 #include <time.h>
 
@@ -58,3 +60,5 @@ void O2RingStatus::recordPreservingFilename(int result) {
     filesSynced = 0;
     // lastFilename left untouched
 }
+
+#endif // ENABLE_O2RING_SYNC

@@ -1,3 +1,5 @@
+#ifdef ENABLE_O2RING_SYNC
+
 #include "O2RingState.h"
 
 const char* O2RingState::NAMESPACE = "o2ring";
@@ -57,3 +59,5 @@ void O2RingState::retainOnly(const std::vector<String>& keep) {
         }
     }
 }
+
+#endif // ENABLE_O2RING_SYNC

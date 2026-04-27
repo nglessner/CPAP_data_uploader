@@ -1,3 +1,5 @@
+#ifdef ENABLE_O2RING_SYNC
+
 #include "O2RingSync.h"
 #include "O2RingProtocol.h"
 #include "Logger.h"
@@ -251,3 +253,5 @@ O2RingSyncResult O2RingSync::run() {
     status.save();
     return result;
 }
+
+#endif // ENABLE_O2RING_SYNC
