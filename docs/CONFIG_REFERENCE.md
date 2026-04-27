@@ -100,7 +100,7 @@ These settings are only active when firmware is built with `-DENABLE_O2RING_SYNC
 | Key | Default | Description |
 |---|---|---|
 | `O2RING_ENABLED` | `false` | Set to `true` to enable BLE sync after each CPAP upload |
-| `O2RING_DEVICE_NAME` | `O2Ring` | BLE advertised name prefix to scan for |
+| `O2RING_DEVICE_NAME` | `T8520` | BLE advertised name prefix to scan for |
 | `O2RING_PATH` | `oximetry/raw` | Base subfolder within the configured SMB endpoint for `.vld` files. Final upload path is `<O2RING_PATH>/<DEVICE_NAME-or-MAC>/<file>.vld` — see `DEVICE_NAME` in section 1 |
 | `O2RING_SCAN_SECONDS` | `30` | BLE scan duration in seconds (1–120) |
 
@@ -108,10 +108,12 @@ These settings are only active when firmware is built with `-DENABLE_O2RING_SYNC
 
 ```ini
 O2RING_ENABLED = true
-O2RING_DEVICE_NAME = O2Ring
+O2RING_DEVICE_NAME = T8520
 O2RING_PATH = oximetry/raw
 O2RING_SCAN_SECONDS = 30
 ```
+
+The default `T8520` matches modern Viatom O2Ring-S firmware (advertised as `T8520_<last4-mac>`). Older Viatom rings sometimes advertise as `O2Ring` or another vendor-specific prefix; if the firmware never finds your ring with the default, override via `O2RING_DEVICE_NAME = <prefix>` after confirming the actual advertised name with a BLE scanner (e.g. `bluetoothctl scan on`, the nRF Connect mobile app, etc.).
 
 The sync runs after each CPAP upload cycle, once the SD card has been released back to the CPAP machine. `.vld` session files are downloaded from the ring over BLE and written directly to the SMB share — no SD card access is required.
 
