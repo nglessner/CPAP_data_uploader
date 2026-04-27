@@ -1,4 +1,4 @@
-#ifndef UNIT_TEST
+#if defined(ENABLE_O2RING_SYNC) && !defined(UNIT_TEST)
 
 #include "Esp32BleClient.h"
 #include "Logger.h"
@@ -147,4 +147,4 @@ bool Esp32BleClient::isConnected() const {
     return _connected && client && client->isConnected();
 }
 
-#endif // UNIT_TEST
+#endif // ENABLE_O2RING_SYNC && !UNIT_TEST
