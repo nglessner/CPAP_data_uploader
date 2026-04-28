@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "IBleClient.h"
+#include "O2RingFileSink.h"
 #include "O2RingState.h"
 
 // Outcome of a sync run. Distinct values per state-machine step so the
@@ -39,21 +40,18 @@ struct OxyIIConfig {
 // drives the full state machine (scan → connect → MTU → command flow → per-
 // file pull → disconnect) and returns a terminal result.
 //
-// Persistence of pulled file bytes is delegated to onFileComplete: the
-// orchestrator buffers each file in RAM (max ≤32 KB observed in the wild)
-// and hands the buffer + filename to the callback when 0xF4 arrives. The
-// callback returns true on success (file is then marked synced in dedup
-// state); false leaves the filename un-synced for the next attempt.
+// Persistence of pulled file bytes is delegated to a streaming O2RingFileSink:
+// each F3 chunk is handed to sink.writeChunk() as it arrives, so the
+// orchestrator never buffers more than one chunk (~240 bytes) in RAM. The
+// sink is responsible for whatever durable storage / upload is needed and
+// indicates per-file success via finalize(ok). A sink returning false from
+// begin() or writeChunk() leaves the filename un-synced for the next attempt.
 class O2RingOxyIISync {
 public:
-    using OnFileComplete = std::function<bool(const String& filename,
-                                              const uint8_t* data,
-                                              size_t len)>;
-
     O2RingOxyIISync(IBleClient& ble,
                     O2RingState& state,
                     const OxyIIConfig& config,
-                    OnFileComplete onFileComplete);
+                    O2RingFileSink& sink);
 
     O2RingSyncResult run();
 
@@ -67,7 +65,7 @@ private:
     IBleClient&       _ble;
     O2RingState&      _state;
     OxyIIConfig       _config;
-    OnFileComplete    _onFileComplete;
+    O2RingFileSink&   _sink;
     uint8_t           _seq = 0;
     uint8_t           _sessionKey[16] = {0};
     bool              _sessionKeyDerived = false;
@@ -81,13 +79,22 @@ private:
     // Send-then-receive a single command. Returns the decoded reply bytes
     // (payload only, NOT the wire envelope) on success, or empty on any
     // failure. seq is bumped automatically.
+    //
+    // expectReply=false: send fire-and-forget (no reply timeout, no decode).
+    // Used for 0xFF AUTH which the ring acknowledges silently — no reply is
+    // ever sent (confirmed across pair / sync / our own snoops). pull_v2.py
+    // mirrors this with a 1-second implicit pause; we use postSendDelayMs.
     bool sendCommand(uint8_t opcode, const uint8_t* payload, size_t payloadLen,
-                     uint8_t* outPayload, size_t outCap, size_t& outLen);
+                     uint8_t* outPayload, size_t outCap, size_t& outLen,
+                     bool expectReply = true,
+                     uint32_t postSendDelayMs = 0);
 
     // Like sendCommand but encrypts the payload with _sessionKey before send.
     // Used for 0xFF (AUTH) and 0xF2 (READ_FILE_START).
     bool sendEncryptedCommand(uint8_t opcode, const uint8_t* payload, size_t payloadLen,
-                              uint8_t* outPayload, size_t outCap, size_t& outLen);
+                              uint8_t* outPayload, size_t outCap, size_t& outLen,
+                              bool expectReply = true,
+                              uint32_t postSendDelayMs = 0);
 
     // Pull one file via the F2/F3-loop/F4 sequence. Returns true if all bytes
     // arrived and onFileComplete returned true; false on any failure.

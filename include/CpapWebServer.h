@@ -65,6 +65,7 @@ private:
 
 #ifdef ENABLE_O2RING_SYNC
     void handleApiO2RingStatus();
+    void handleTriggerO2RingSync();
 #endif
 
 #ifdef ENABLE_OTA_UPDATES

@@ -23,6 +23,33 @@ void Esp32BleClient::initStack() {
          (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
 }
 
+// Match the four OxyII-mode signatures pull_v2.py uses, in priority order.
+// The OxyII-mode advertisement rarely carries the OxyII service UUID; matching
+// only on that (the previous behavior) misses the ring almost every time.
+// Returns a static label naming which signature hit, or nullptr if none did.
+static const char* matchOxyIISignature(NimBLEAdvertisedDevice& d, const NimBLEUUID& target) {
+    // 1. Random Static address with prefix F3:7F:ED (post-reset address)
+    String addr = d.getAddress().toString().c_str();
+    addr.toUpperCase();
+    if (addr.startsWith("F3:7F:ED")) return "addr-prefix";
+    // 2. Manufacturer ID 0xF34E (OxyII-mode marker)
+    if (d.haveManufacturerData()) {
+        std::string m = d.getManufacturerData();
+        if (m.size() >= 2) {
+            uint16_t cid = (uint8_t)m[0] | ((uint16_t)(uint8_t)m[1] << 8);
+            if (cid == 0xF34E) return "manuf-id";
+        }
+    }
+    // 3. Local name starting with "S8-AW"
+    if (d.haveName()) {
+        std::string name = d.getName();
+        if (name.rfind("S8-AW", 0) == 0) return "name-prefix";
+    }
+    // 4. OxyII service UUID in advertisement (rare but cheap)
+    if (d.isAdvertisingService(target)) return "service-uuid";
+    return nullptr;
+}
+
 Esp32BleClient::Esp32BleClient()
     : client(nullptr), writeChar(nullptr), notifyChar(nullptr), _connected(false) {}
 
@@ -61,13 +88,16 @@ bool Esp32BleClient::connect(const String& serviceUuid, uint32_t scanSecs) {
     bool found = false;
     for (int i = 0; i < results.getCount(); i++) {
         NimBLEAdvertisedDevice d = results.getDevice(i);
-        if (d.isAdvertisingService(target)) {
+        const char* via = matchOxyIISignature(d, target);
+        if (via) {
             targetAddr = d.getAddress();
             found = true;
             _lastScanFound = true;
-            LOGF("[O2Ring BLE] Found device by service UUID: name=%s addr=%s",
+            LOGF("[O2Ring BLE] Found OxyII ring via %s: name=%s addr=%s rssi=%d",
+                 via,
                  d.haveName() ? d.getName().c_str() : "(unnamed)",
-                 d.getAddress().toString().c_str());
+                 d.getAddress().toString().c_str(),
+                 d.haveRSSI() ? d.getRSSI() : 0);
             break;
         }
     }

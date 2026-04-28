@@ -15,6 +15,9 @@
 volatile bool g_triggerUploadFlag = false;
 volatile bool g_resetStateFlag = false;
 volatile bool g_softRebootFlag = false;
+#ifdef ENABLE_O2RING_SYNC
+volatile bool g_triggerO2RingSyncFlag = false;
+#endif
 
 // Monitoring trigger flags
 volatile bool g_monitorActivityFlag = false;
@@ -182,6 +185,10 @@ bool CpapWebServer::begin() {
         if (this->redirectToIpIfMdnsRequest()) return;
         this->handleApiO2RingStatus();
     });
+    server->on("/trigger-o2ring-sync", [this]() {
+        if (this->redirectToIpIfMdnsRequest()) return;
+        this->handleTriggerO2RingSync();
+    });
 #endif
 
 #ifdef ENABLE_OTA_UPDATES
@@ -213,6 +220,9 @@ bool CpapWebServer::begin() {
     LOG("[WebServer] Available endpoints:");
     LOG("[WebServer]   GET  /                  - Dashboard (HTML SPA)");
     LOG("[WebServer]   GET  /trigger-upload    - Force immediate upload");
+#ifdef ENABLE_O2RING_SYNC
+    LOG("[WebServer]   GET  /trigger-o2ring-sync - Force immediate O2Ring sync");
+#endif
     LOG("[WebServer]   GET  /status            - Status page (HTML)");
     LOG("[WebServer]   GET  /config            - Config page (HTML)");
     LOG("[WebServer]   GET  /logs              - Logs page (HTML)");
@@ -336,6 +346,32 @@ void CpapWebServer::handleTriggerUpload() {
 
 // GET /status - JSON status information (Legacy - Removed, use handleApiStatus)
 
+
+#ifdef ENABLE_O2RING_SYNC
+// GET /trigger-o2ring-sync - Force an immediate OxyII sync attempt
+void CpapWebServer::handleTriggerO2RingSync() {
+    LOG("[WebServer] O2Ring sync trigger requested via web interface");
+    addCorsHeaders(server);
+
+    if (!config || !config->isO2RingEnabled()) {
+        server->send(200, "application/json",
+            "{\"status\":\"disabled\",\"message\":\"O2Ring sync is disabled in config (O2RING_ENABLED).\"}");
+        return;
+    }
+
+    // Block while an upload task is running so we don't fight the FSM for
+    // ownership of the SD bus / WiFi/BT coex state mid-upload.
+    if (uploadTaskRunning) {
+        server->send(200, "application/json",
+            "{\"status\":\"busy\",\"message\":\"Upload in progress; try again after it completes.\"}");
+        return;
+    }
+
+    g_triggerO2RingSyncFlag = true;
+    server->send(200, "application/json",
+        "{\"status\":\"success\",\"message\":\"O2Ring sync triggered. Watch the dashboard for results.\"}");
+}
+#endif
 
 // GET /soft-reboot - Reboot immediately, skipping cold-boot delays
 void CpapWebServer::handleSoftReboot() {

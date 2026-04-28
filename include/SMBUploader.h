@@ -173,6 +173,22 @@ public:
      * @return true if upload successful, false otherwise
      */
     bool uploadRawBuffer(const String& remotePath, const uint8_t* data, size_t len);
+
+    /**
+     * Streaming write API — open a remote file once, write chunks as they
+     * arrive, then close. Used by the O2Ring sync sink so we never have to
+     * buffer a whole BLE-pulled file in RAM.
+     *
+     * Lifecycle:
+     *   smb2fh* fh = openForWrite(remotePath);   // nullptr on failure
+     *   while (more) writeStream(fh, chunk, len);
+     *   closeStream(fh);                          // always pair with open
+     *   if (failed) unlinkRemote(remotePath);     // best-effort cleanup
+     */
+    struct smb2fh* openForWrite(const String& remotePath);
+    bool writeStream(struct smb2fh* fh, const uint8_t* data, size_t len);
+    void closeStream(struct smb2fh* fh);
+    bool unlinkRemote(const String& remotePath);
 };
 
 #endif // ENABLE_SMB_UPLOAD

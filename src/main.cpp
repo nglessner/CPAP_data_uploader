@@ -27,6 +27,7 @@ bool g_heapRecoveryBoot = false;
 #ifdef ENABLE_O2RING_SYNC
 #include "O2RingOxyIISync.h"
 #include "O2RingState.h"
+#include "O2RingStatus.h"
 #ifdef ENABLE_SMB_UPLOAD
 #include "SMBUploader.h"
 #endif
@@ -115,6 +116,9 @@ bool g_debugMode = false;
 // External trigger flags (defined in WebServer.cpp)
 extern volatile bool g_triggerUploadFlag;
 extern volatile bool g_resetStateFlag;
+#ifdef ENABLE_O2RING_SYNC
+extern volatile bool g_triggerO2RingSyncFlag;
+#endif
 
 // Monitoring trigger flags (defined in WebServer.cpp)
 extern volatile bool g_monitorActivityFlag;
@@ -830,33 +834,93 @@ void handleMonitoring() {
 }
 
 #ifdef ENABLE_O2RING_SYNC
-// Handoff for each pulled file: SMB-upload it under
-// /<O2RingPath>/<deviceSegment>/<filename>.dat. Returns true on success;
-// orchestrator only marks the filename as synced when this returns true.
-static bool uploadO2RingFile(const String& filename, const uint8_t* data, size_t len) {
 #ifdef ENABLE_SMB_UPLOAD
-    SMBUploader smb(config.getEndpoint(),
-                    config.getEndpointUser(),
-                    config.getEndpointPassword());
-    if (!smb.begin()) {
-        LOG_ERROR("[OxyII FSM] SMB connect failed");
-        return false;
+// Streaming SMB sink for O2Ring file pulls. The orchestrator hands one
+// BLE chunk at a time to writeChunk(); we forward straight to smb2_write,
+// so peak RAM is one chunk (~240 B) per file regardless of file size.
+// Heap fragmentation no longer caps file size — we tested this against
+// 80+ KB recordings that the buffer-then-upload path could not fit.
+class O2RingSMBStreamingSink : public O2RingFileSink {
+public:
+    O2RingSMBStreamingSink()
+        : _smb(config.getEndpoint(),
+               config.getEndpointUser(),
+               config.getEndpointPassword()) {}
+
+    ~O2RingSMBStreamingSink() override {
+        if (_fh) _smb.closeStream(_fh);
+        if (_smbBegan) _smb.end();
     }
-    String dir = "/" + config.getO2RingPath() + "/" + config.getDeviceSegment();
-    smb.createDirectory(dir);
-    String remotePath = dir + "/" + filename + ".dat";
-    bool uploaded = smb.uploadRawBuffer(remotePath, data, len);
-    smb.end();
-    if (!uploaded) {
-        LOG_ERROR("[OxyII FSM] SMB upload failed");
-        return false;
+
+    bool begin(const String& filename, uint32_t totalSize) override {
+        if (!_smbBegan) {
+            if (!_smb.begin()) {
+                LOG_ERROR("[OxyII FSM] SMB connect failed");
+                return false;
+            }
+            _smbBegan = true;
+        }
+        String dir = "/" + config.getO2RingPath() + "/" + config.getDeviceSegment();
+        _smb.createDirectory(dir);
+        _currentRemotePath = dir + "/" + filename + ".dat";
+        _fh = _smb.openForWrite(_currentRemotePath);
+        if (!_fh) {
+            LOG_ERRORF("[OxyII FSM] SMB open-for-write failed: %s",
+                       _currentRemotePath.c_str());
+            return false;
+        }
+        LOGF("[OxyII FSM] streaming %s (%u bytes) -> %s",
+             filename.c_str(), (unsigned)totalSize, _currentRemotePath.c_str());
+        _bytesWritten = 0;
+        return true;
     }
-    return true;
+
+    bool writeChunk(const uint8_t* data, size_t len) override {
+        if (!_fh) return false;
+        if (!_smb.writeStream(_fh, data, len)) {
+            return false;
+        }
+        _bytesWritten += len;
+        return true;
+    }
+
+    void finalize(bool ok) override {
+        if (_fh) {
+            _smb.closeStream(_fh);
+            _fh = nullptr;
+        }
+        if (!ok && _currentRemotePath.length() > 0) {
+            // Best-effort cleanup of the partial file. Failures are logged
+            // by SMBUploader but do not block the sync run.
+            _smb.unlinkRemote(_currentRemotePath);
+            LOGF("[OxyII FSM] cleaned up partial %s", _currentRemotePath.c_str());
+        } else if (ok) {
+            LOGF("[OxyII FSM] streamed %u bytes to %s",
+                 (unsigned)_bytesWritten, _currentRemotePath.c_str());
+        }
+        _currentRemotePath = "";
+        _bytesWritten = 0;
+    }
+
+private:
+    SMBUploader   _smb;
+    bool          _smbBegan = false;
+    smb2fh*       _fh = nullptr;
+    String        _currentRemotePath;
+    size_t        _bytesWritten = 0;
+};
 #else
-    LOG_WARN("[OxyII FSM] No upload backend compiled in; discarding file");
-    return false;
+// No upload backend compiled in — sink does nothing and reports failure.
+class O2RingSMBStreamingSink : public O2RingFileSink {
+public:
+    bool begin(const String&, uint32_t) override {
+        LOG_WARN("[OxyII FSM] No upload backend compiled in; rejecting file");
+        return false;
+    }
+    bool writeChunk(const uint8_t*, size_t) override { return false; }
+    void finalize(bool) override {}
+};
 #endif
-}
 
 void handleO2RingSync() {
     // O2RING_DEVICE_NAME is no longer used as a scan filter (we filter by
@@ -874,8 +938,23 @@ void handleO2RingSync() {
     syncCfg.mtu = 247;
     syncCfg.cmdTimeoutMs = 5000;
 
-    O2RingOxyIISync sync(bleClient, state, syncCfg, uploadO2RingFile);
+    O2RingSMBStreamingSink sink;
+    O2RingOxyIISync sync(bleClient, state, syncCfg, sink);
     O2RingSyncResult result = sync.run();
+
+    // Persist the outcome so the dashboard's O2Ring Sync card has fresh
+    // data. Use recordPreservingFilename for early-failure paths (no INFO
+    // yet, no file list yet); otherwise record with the most recent
+    // filename the orchestrator pulled.
+    O2RingStatus statusRec;
+    statusRec.load();
+    if (result == O2RingSyncResult::OK) {
+        statusRec.record((int)result, (uint16_t)sync.lastSyncedCount(),
+                         sync.lastSyncedFilename());
+    } else {
+        statusRec.recordPreservingFilename((int)result);
+    }
+    statusRec.save();
 
     switch (result) {
         case O2RingSyncResult::OK:
@@ -1029,6 +1108,19 @@ void loop() {
         uploadCycleHadTimeout = false;
         transitionTo(UploadState::ACQUIRING);
     }
+
+#ifdef ENABLE_O2RING_SYNC
+    // O2Ring sync trigger — jump straight into O2RING_SYNC, bypassing any
+    // remaining cooldown. Blocked while an upload task is running so the FSM
+    // can finish releasing the SD bus first. The trigger endpoint already
+    // gates on isO2RingEnabled(), so no need to re-check here.
+    if (g_triggerO2RingSyncFlag && !uploadTaskRunning &&
+        currentState != UploadState::O2RING_SYNC) {
+        LOG("=== O2Ring Sync Triggered via Web Interface ===");
+        g_triggerO2RingSyncFlag = false;
+        transitionTo(UploadState::O2RING_SYNC);
+    }
+#endif
     
     // Check for monitoring triggers
     if (g_monitorActivityFlag) {

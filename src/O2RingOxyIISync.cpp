@@ -36,11 +36,12 @@ size_t buildSetTimePayload(const struct tm& tm, uint8_t* out, size_t outCap) {
 O2RingOxyIISync::O2RingOxyIISync(IBleClient& ble,
                                   O2RingState& state,
                                   const OxyIIConfig& config,
-                                  OnFileComplete onFileComplete)
-    : _ble(ble), _state(state), _config(config), _onFileComplete(std::move(onFileComplete)) {}
+                                  O2RingFileSink& sink)
+    : _ble(ble), _state(state), _config(config), _sink(sink) {}
 
 bool O2RingOxyIISync::sendCommand(uint8_t opcode, const uint8_t* payload, size_t payloadLen,
-                                   uint8_t* outPayload, size_t outCap, size_t& outLen) {
+                                   uint8_t* outPayload, size_t outCap, size_t& outLen,
+                                   bool expectReply, uint32_t postSendDelayMs) {
     uint8_t frame[OxyIIProtocol::FRAME_HEADER_LEN + 600 + 1];
     size_t frameLen = OxyIIProtocol::encodeFrame(opcode, payload, payloadLen,
                                                   _seq++, frame, sizeof(frame));
@@ -52,6 +53,12 @@ bool O2RingOxyIISync::sendCommand(uint8_t opcode, const uint8_t* payload, size_t
     if (!_ble.writeChunked(frame, frameLen)) {
         LOG_ERRORF("[OxyII] write failed for opcode 0x%02x", opcode);
         return false;
+    }
+
+    if (!expectReply) {
+        outLen = 0;
+        if (postSendDelayMs > 0) delay(postSendDelayMs);
+        return true;
     }
 
     uint8_t replyFrame[kNotifyBufCap];
@@ -80,7 +87,8 @@ bool O2RingOxyIISync::sendCommand(uint8_t opcode, const uint8_t* payload, size_t
 }
 
 bool O2RingOxyIISync::sendEncryptedCommand(uint8_t opcode, const uint8_t* payload, size_t payloadLen,
-                                            uint8_t* outPayload, size_t outCap, size_t& outLen) {
+                                            uint8_t* outPayload, size_t outCap, size_t& outLen,
+                                            bool expectReply, uint32_t postSendDelayMs) {
     if (!_sessionKeyDerived) {
         LOG_ERROR("[OxyII] sendEncryptedCommand before key derived");
         return false;
@@ -92,12 +100,15 @@ bool O2RingOxyIISync::sendEncryptedCommand(uint8_t opcode, const uint8_t* payloa
         LOG_ERROR("[OxyII] AES encrypt failed");
         return false;
     }
-    return sendCommand(opcode, cipher, cipherLen, outPayload, outCap, outLen);
+    return sendCommand(opcode, cipher, cipherLen, outPayload, outCap, outLen,
+                       expectReply, postSendDelayMs);
 }
 
 bool O2RingOxyIISync::pullFile(const String& filename) {
-    // F2 — READ_FILE_START. Encrypted 20-byte payload: 16-byte filename slot
-    // (null-padded) + u32 LE file_type (0 = .dat / OXY).
+    // F2 — READ_FILE_START. PLAINTEXT 20-byte payload: 16-byte filename slot
+    // (null-padded) + u32 LE file_type (0 = .dat / OXY). Per the protocol
+    // walkthrough: "Only cmd=0xFF (auth) is AES-encrypted. Everything else
+    // (... READ_FILE_START / DATA / END, ...) is plaintext."
     uint8_t startPayload[20];
     if (!OxyIIProtocol::buildReadFileStartPayload(filename.c_str(), filename.length(),
                                                    /*fileType=*/0, startPayload, sizeof(startPayload))) {
@@ -107,64 +118,100 @@ bool O2RingOxyIISync::pullFile(const String& filename) {
 
     uint8_t reply[kNotifyBufCap];
     size_t replyLen = 0;
-    if (!sendEncryptedCommand(OxyIIProtocol::OP_READ_FILE_START,
-                               startPayload, sizeof(startPayload),
-                               reply, sizeof(reply), replyLen)) {
+    if (!sendCommand(OxyIIProtocol::OP_READ_FILE_START,
+                     startPayload, sizeof(startPayload),
+                     reply, sizeof(reply), replyLen)) {
+        return false;
+    }
+    // Reply payload is u32-LE file size. Use it to bound the F3 loop so we
+    // don't rely solely on "shorter chunk = EOF" — which fails if the file
+    // is exactly one chunk long.
+    uint32_t advertisedSize = 0;
+    if (replyLen >= 4) {
+        advertisedSize = (uint32_t)reply[0]
+                       | ((uint32_t)reply[1] << 8)
+                       | ((uint32_t)reply[2] << 16)
+                       | ((uint32_t)reply[3] << 24);
+        LOGF("[OxyII] %s advertised size = %u bytes",
+             filename.c_str(), (unsigned)advertisedSize);
+    }
+
+    // Streaming destination: every F3 chunk is forwarded to the sink as it
+    // arrives — orchestrator never holds more than one chunk in RAM. This
+    // is essential for files larger than the largest contiguous heap block
+    // available at sync time (~30 KB observed; real files reach 80+ KB).
+    if (advertisedSize == 0) {
+        LOG_ERROR("[OxyII] F2 did not advertise file size — refusing pull");
+        return false;
+    }
+    if (!_sink.begin(filename, advertisedSize)) {
+        LOG_ERRORF("[OxyII] sink.begin failed for %s (size=%u)",
+                   filename.c_str(), (unsigned)advertisedSize);
         return false;
     }
 
-    // F3 loop — fetch chunks at increasing offsets until a chunk comes back
-    // shorter than the previous one (signaling end of file).
-    std::vector<uint8_t> fileBytes;
-    fileBytes.reserve(8 * 1024);   // initial guess; std::vector will grow if needed
-
+    // F3 loop — fetch chunks at increasing offsets until we've read
+    // advertisedSize bytes, or the ring sends an empty chunk (EOF).
     uint32_t offset = 0;
-    size_t   prevChunkLen = 0;
     bool     finished = false;
+    bool     ok = true;
 
     while (!finished) {
         uint8_t dataPayload[4];
         if (!OxyIIProtocol::buildReadFileDataPayload(offset, dataPayload, sizeof(dataPayload))) {
             LOG_ERROR("[OxyII] readFileData payload build failed");
-            return false;
+            ok = false;
+            break;
         }
         size_t chunkLen = 0;
         if (!sendCommand(OxyIIProtocol::OP_READ_FILE_DATA,
                          dataPayload, sizeof(dataPayload),
                          reply, sizeof(reply), chunkLen)) {
             LOG_ERRORF("[OxyII] readFileData failed at offset %u", (unsigned)offset);
-            return false;
+            ok = false;
+            break;
         }
-        if (chunkLen > 0) {
-            fileBytes.insert(fileBytes.end(), reply, reply + chunkLen);
-            offset += chunkLen;
+        if (chunkLen == 0) {
+            finished = true;  // empty chunk = EOF
+            break;
         }
-        // End-of-file signal: a chunk shorter than the previous one. The first
-        // short-or-equal chunk after at least one chunk closes the loop.
-        if (prevChunkLen != 0 && chunkLen < prevChunkLen) {
+        if (offset + chunkLen > advertisedSize) {
+            LOG_ERRORF("[OxyII] chunk overrun: offset=%u + chunk=%u > advertised=%u",
+                       (unsigned)offset, (unsigned)chunkLen, (unsigned)advertisedSize);
+            ok = false;
+            break;
+        }
+        if (!_sink.writeChunk(reply, chunkLen)) {
+            LOG_ERRORF("[OxyII] sink.writeChunk failed at offset %u", (unsigned)offset);
+            ok = false;
+            break;
+        }
+        offset += chunkLen;
+        if (offset >= advertisedSize) {
             finished = true;
-        } else if (chunkLen == 0) {
-            finished = true;
         }
-        prevChunkLen = chunkLen;
+    }
+
+    if (!ok) {
+        _sink.finalize(false);
+        return false;
     }
 
     // F4 — READ_FILE_END
     if (!sendCommand(OxyIIProtocol::OP_READ_FILE_END, nullptr, 0,
                      reply, sizeof(reply), replyLen)) {
         LOG_ERROR("[OxyII] readFileEnd failed");
+        _sink.finalize(false);
         return false;
     }
 
-    if (fileBytes.empty()) {
+    if (offset == 0) {
         LOG_ERROR("[OxyII] file pull produced zero bytes");
+        _sink.finalize(false);
         return false;
     }
 
-    if (!_onFileComplete(filename, fileBytes.data(), fileBytes.size())) {
-        LOG_ERRORF("[OxyII] onFileComplete returned false for %s", filename.c_str());
-        return false;
-    }
+    _sink.finalize(true);
 
     _lastSyncedCount++;
     _lastSyncedFilename = filename;
@@ -210,11 +257,16 @@ O2RingSyncResult O2RingOxyIISync::run() {
     uint8_t reply[kNotifyBufCap];
     size_t replyLen = 0;
 
-    // 0xFF AUTH — encrypted 16-byte payload (zeros are accepted)
+    // 0xFF AUTH — encrypted 16-byte payload (zeros are accepted).
+    // The ring never sends a reply for AUTH (confirmed across all snoops),
+    // so we send fire-and-forget and pause briefly to let the ring process
+    // before the next command. pull_v2.py uses a 1s reply_timeout for the
+    // same effect; 1000ms here matches.
     {
         uint8_t authPayload[16] = {0};
         if (!sendEncryptedCommand(OxyIIProtocol::OP_AUTH, authPayload, sizeof(authPayload),
-                                   reply, sizeof(reply), replyLen)) {
+                                   reply, sizeof(reply), replyLen,
+                                   /*expectReply=*/false, /*postSendDelayMs=*/1000)) {
             _ble.disconnect();
             return O2RingSyncResult::AUTH_FAILED;
         }
