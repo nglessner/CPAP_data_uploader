@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "IBleClient.h"
+#include "O2RingFileSink.h"
 #include "O2RingState.h"
 
 // Outcome of a sync run. Distinct values per state-machine step so the
@@ -39,21 +40,18 @@ struct OxyIIConfig {
 // drives the full state machine (scan → connect → MTU → command flow → per-
 // file pull → disconnect) and returns a terminal result.
 //
-// Persistence of pulled file bytes is delegated to onFileComplete: the
-// orchestrator buffers each file in RAM (max ≤32 KB observed in the wild)
-// and hands the buffer + filename to the callback when 0xF4 arrives. The
-// callback returns true on success (file is then marked synced in dedup
-// state); false leaves the filename un-synced for the next attempt.
+// Persistence of pulled file bytes is delegated to a streaming O2RingFileSink:
+// each F3 chunk is handed to sink.writeChunk() as it arrives, so the
+// orchestrator never buffers more than one chunk (~240 bytes) in RAM. The
+// sink is responsible for whatever durable storage / upload is needed and
+// indicates per-file success via finalize(ok). A sink returning false from
+// begin() or writeChunk() leaves the filename un-synced for the next attempt.
 class O2RingOxyIISync {
 public:
-    using OnFileComplete = std::function<bool(const String& filename,
-                                              const uint8_t* data,
-                                              size_t len)>;
-
     O2RingOxyIISync(IBleClient& ble,
                     O2RingState& state,
                     const OxyIIConfig& config,
-                    OnFileComplete onFileComplete);
+                    O2RingFileSink& sink);
 
     O2RingSyncResult run();
 
@@ -67,7 +65,7 @@ private:
     IBleClient&       _ble;
     O2RingState&      _state;
     OxyIIConfig       _config;
-    OnFileComplete    _onFileComplete;
+    O2RingFileSink&   _sink;
     uint8_t           _seq = 0;
     uint8_t           _sessionKey[16] = {0};
     bool              _sessionKeyDerived = false;

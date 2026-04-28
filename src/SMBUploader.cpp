@@ -945,4 +945,56 @@ bool SMBUploader::uploadRawBuffer(const String& remotePath, const uint8_t* data,
     return true;
 }
 
+smb2fh* SMBUploader::openForWrite(const String& remotePath) {
+    if (!connected && !connect()) {
+        return nullptr;
+    }
+    String fullPath = smbBasePath.length() > 0
+                    ? smbBasePath + remotePath
+                    : remotePath;
+    if (fullPath.startsWith("/")) {
+        fullPath = fullPath.substring(1);
+    }
+    smb2fh* fh = smb2_open(smb2, fullPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC);
+    if (!fh) {
+        LOGF("[SMB] openForWrite: open failed: %s", remotePath.c_str());
+    }
+    return fh;
+}
+
+bool SMBUploader::writeStream(smb2fh* fh, const uint8_t* data, size_t len) {
+    if (!fh || !connected) return false;
+    size_t written = 0;
+    while (written < len) {
+        size_t chunk = (len - written) < 4096 ? (len - written) : 4096;
+        int n = smb2_write(smb2, fh, (uint8_t*)data + written, chunk);
+        if (n <= 0) {
+            LOGF("[SMB] writeStream: write error at offset %u", (unsigned)written);
+            return false;
+        }
+        written += (size_t)n;
+    }
+    return true;
+}
+
+void SMBUploader::closeStream(smb2fh* fh) {
+    if (fh && smb2) smb2_close(smb2, fh);
+}
+
+bool SMBUploader::unlinkRemote(const String& remotePath) {
+    if (!connected) return false;
+    String fullPath = smbBasePath.length() > 0
+                    ? smbBasePath + remotePath
+                    : remotePath;
+    if (fullPath.startsWith("/")) {
+        fullPath = fullPath.substring(1);
+    }
+    int rc = smb2_unlink(smb2, fullPath.c_str());
+    if (rc != 0) {
+        LOGF("[SMB] unlinkRemote: failed for %s (rc=%d)", remotePath.c_str(), rc);
+        return false;
+    }
+    return true;
+}
+
 #endif // ENABLE_SMB_UPLOAD

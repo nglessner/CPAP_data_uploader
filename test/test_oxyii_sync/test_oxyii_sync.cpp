@@ -18,7 +18,49 @@
 
 #include "OxyIIProtocol.h"
 #include "OxyIIAes.h"
+#include "O2RingFileSink.h"
 #include "O2RingOxyIISync.h"
+
+// In-memory sink for tests. Captures filename + concatenated chunks so the
+// original assertion patterns (filename, byte count, byte values) keep
+// working under the streaming contract. Knobs let tests simulate failure
+// at begin, at writeChunk, or at finalize.
+class MockFileSink : public O2RingFileSink {
+public:
+    bool failBegin = false;
+    int  failChunkAtIndex = -1;   // -1 = never fail; 0 = fail on first chunk; etc.
+
+    String              capturedFilename;
+    uint32_t            capturedTotalSize = 0;
+    std::vector<uint8_t> capturedBytes;
+    int                 chunkCount = 0;
+    bool                beginCalled = false;
+    bool                finalizeCalled = false;
+    bool                lastFinalizeOk = false;
+
+    bool begin(const String& filename, uint32_t totalSize) override {
+        beginCalled = true;
+        if (failBegin) return false;
+        capturedFilename = filename;
+        capturedTotalSize = totalSize;
+        capturedBytes.clear();
+        chunkCount = 0;
+        return true;
+    }
+    bool writeChunk(const uint8_t* data, size_t len) override {
+        if (failChunkAtIndex == chunkCount) {
+            chunkCount++;
+            return false;
+        }
+        capturedBytes.insert(capturedBytes.end(), data, data + len);
+        chunkCount++;
+        return true;
+    }
+    void finalize(bool ok) override {
+        finalizeCalled = true;
+        lastFinalizeOk = ok;
+    }
+};
 
 #include "../../src/OxyIIAes.cpp"
 #include "../../src/O2RingState.cpp"
@@ -131,8 +173,8 @@ void test_orchestrator_filters_scan_by_oxyii_service_uuid() {
     enqueueOpeningExchange(mock);
     mock.enqueueResponse(buildFileListReply({}));  // empty file list
 
-    auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
-    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    MockFileSink sink;
+    O2RingOxyIISync sync(mock, state, defaultConfig(), sink);
     sync.run();
 
     // Service UUID must be the canonical OxyII one — robust to T8520_/S8-AW
@@ -164,25 +206,22 @@ void test_happy_path_one_new_file() {
     }
     mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_END));
 
-    std::vector<uint8_t> capturedBytes;
-    String capturedFilename;
-    auto onComplete = [&](const String& fn, const uint8_t* data, size_t len) {
-        capturedFilename = fn;
-        capturedBytes.assign(data, data + len);
-        return true;
-    };
-
-    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    MockFileSink sink;
+    O2RingOxyIISync sync(mock, state, defaultConfig(), sink);
     O2RingSyncResult result = sync.run();
 
     TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::OK, (int)result);
     TEST_ASSERT_EQUAL_size_t(1, sync.lastSyncedCount());
     TEST_ASSERT_EQUAL_STRING("20260427213521", sync.lastSyncedFilename().c_str());
-    TEST_ASSERT_EQUAL_STRING("20260427213521", capturedFilename.c_str());
-    // 8 + 4 bytes pulled
-    TEST_ASSERT_EQUAL_size_t(12, capturedBytes.size());
-    TEST_ASSERT_EQUAL_UINT8(0xAA, capturedBytes[0]);
-    TEST_ASSERT_EQUAL_UINT8(0x66, capturedBytes[11]);
+    TEST_ASSERT_EQUAL_STRING("20260427213521", sink.capturedFilename.c_str());
+    TEST_ASSERT_EQUAL_UINT32(12, sink.capturedTotalSize);
+    // 8 + 4 bytes pulled — chunks streamed individually
+    TEST_ASSERT_EQUAL_size_t(12, sink.capturedBytes.size());
+    TEST_ASSERT_EQUAL_INT(2, sink.chunkCount);
+    TEST_ASSERT_EQUAL_UINT8(0xAA, sink.capturedBytes[0]);
+    TEST_ASSERT_EQUAL_UINT8(0x66, sink.capturedBytes[11]);
+    TEST_ASSERT_TRUE(sink.finalizeCalled);
+    TEST_ASSERT_TRUE(sink.lastFinalizeOk);
     // dedup state recorded the filename
     TEST_ASSERT_TRUE(state.hasSeen("20260427213521"));
     // requestMtu called once with 247
@@ -201,8 +240,8 @@ void test_happy_path_no_new_files_returns_ok() {
     mock.enqueueResponse(buildFileListReply({"20260427213521"}));
     // No F2/F3/F4 expected — file is already synced.
 
-    auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
-    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    MockFileSink sink;
+    O2RingOxyIISync sync(mock, state, defaultConfig(), sink);
 
     O2RingSyncResult result = sync.run();
 
@@ -227,18 +266,14 @@ void test_dedup_skips_already_synced() {
     }
     mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_END));
 
-    String pulled;
-    auto onComplete = [&](const String& fn, const uint8_t*, size_t) {
-        pulled = fn;
-        return true;
-    };
-    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    MockFileSink sink;
+    O2RingOxyIISync sync(mock, state, defaultConfig(), sink);
 
     O2RingSyncResult result = sync.run();
 
     TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::OK, (int)result);
     TEST_ASSERT_EQUAL_size_t(1, sync.lastSyncedCount());
-    TEST_ASSERT_EQUAL_STRING("20260427213521", pulled.c_str());
+    TEST_ASSERT_EQUAL_STRING("20260427213521", sink.capturedFilename.c_str());
 }
 
 // -------------------- error branches --------------------
@@ -250,8 +285,8 @@ void test_connect_fails_returns_connect_failed_when_device_found() {
     O2RingState state;
     state.load();
 
-    auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
-    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    MockFileSink sink;
+    O2RingOxyIISync sync(mock, state, defaultConfig(), sink);
 
     TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::CONNECT_FAILED, (int)sync.run());
 }
@@ -263,8 +298,8 @@ void test_connect_fails_returns_no_device_found_when_scan_empty() {
     O2RingState state;
     state.load();
 
-    auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
-    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    MockFileSink sink;
+    O2RingOxyIISync sync(mock, state, defaultConfig(), sink);
 
     TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::NO_DEVICE_FOUND, (int)sync.run());
 }
@@ -275,8 +310,8 @@ void test_mtu_negotiation_below_target_returns_mtu_failed() {
     O2RingState state;
     state.load();
 
-    auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
-    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    MockFileSink sink;
+    O2RingOxyIISync sync(mock, state, defaultConfig(), sink);
 
     TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::MTU_FAILED, (int)sync.run());
 }
@@ -292,8 +327,8 @@ void test_auth_no_reply_proceeds_to_keepalive() {
     O2RingState state;
     state.load();
 
-    auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
-    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    MockFileSink sink;
+    O2RingOxyIISync sync(mock, state, defaultConfig(), sink);
 
     TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::HANDSHAKE_FAILED, (int)sync.run());
     // Confirm AUTH was actually written despite no reply.
@@ -314,8 +349,8 @@ void test_get_info_reply_with_no_serial_returns_get_info_failed() {
     // GET_INFO reply with sn_len = 0
     mock.enqueueResponse(buildGetInfoReply("", "2D010002"));
 
-    auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
-    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    MockFileSink sink;
+    O2RingOxyIISync sync(mock, state, defaultConfig(), sink);
 
     TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::GET_INFO_FAILED, (int)sync.run());
 }
@@ -328,8 +363,8 @@ void test_file_list_missing_returns_file_list_failed() {
     enqueueOpeningExchange(mock);
     // No GET_FILE_LIST reply enqueued.
 
-    auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
-    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    MockFileSink sink;
+    O2RingOxyIISync sync(mock, state, defaultConfig(), sink);
 
     TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::FILE_LIST_FAILED, (int)sync.run());
 }
@@ -350,15 +385,16 @@ void test_file_transfer_disconnect_mid_pull_returns_file_transfer_failed() {
     }
     // ... but the next F3 read times out (no more responses queued).
 
-    bool callbackInvoked = false;
-    auto onComplete = [&](const String&, const uint8_t*, size_t) {
-        callbackInvoked = true;
-        return true;
-    };
-    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    MockFileSink sink;
+    O2RingOxyIISync sync(mock, state, defaultConfig(), sink);
 
     TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::FILE_TRANSFER_FAILED, (int)sync.run());
-    TEST_ASSERT_FALSE(callbackInvoked);
+    // Sink was opened (begin called) and a chunk was forwarded, but the
+    // disconnect mid-pull aborted before the F4 close — finalize must
+    // still fire with ok=false so the partial write is cleaned up.
+    TEST_ASSERT_TRUE(sink.beginCalled);
+    TEST_ASSERT_TRUE(sink.finalizeCalled);
+    TEST_ASSERT_FALSE(sink.lastFinalizeOk);
     TEST_ASSERT_FALSE(state.hasSeen("20260427213521"));
 }
 
@@ -376,10 +412,15 @@ void test_on_file_complete_failure_leaves_filename_unsynced() {
     }
     mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_END));
 
-    auto onComplete = [&](const String&, const uint8_t*, size_t) { return false; };
-    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    // Streaming-equivalent of "callback returned false": sink fails on
+    // the first chunk, simulating a downstream-write error.
+    MockFileSink sink;
+    sink.failChunkAtIndex = 0;
+    O2RingOxyIISync sync(mock, state, defaultConfig(), sink);
 
     TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::FILE_TRANSFER_FAILED, (int)sync.run());
+    TEST_ASSERT_TRUE(sink.finalizeCalled);
+    TEST_ASSERT_FALSE(sink.lastFinalizeOk);
     TEST_ASSERT_FALSE(state.hasSeen("20260427213521"));
 }
 
@@ -400,8 +441,8 @@ void test_dedup_pruned_to_ring_list() {
     }
     mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_END));
 
-    auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
-    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    MockFileSink sink;
+    O2RingOxyIISync sync(mock, state, defaultConfig(), sink);
     sync.run();
 
     // After sync: stale entry pruned, current one retained

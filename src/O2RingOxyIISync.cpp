@@ -36,8 +36,8 @@ size_t buildSetTimePayload(const struct tm& tm, uint8_t* out, size_t outCap) {
 O2RingOxyIISync::O2RingOxyIISync(IBleClient& ble,
                                   O2RingState& state,
                                   const OxyIIConfig& config,
-                                  OnFileComplete onFileComplete)
-    : _ble(ble), _state(state), _config(config), _onFileComplete(std::move(onFileComplete)) {}
+                                  O2RingFileSink& sink)
+    : _ble(ble), _state(state), _config(config), _sink(sink) {}
 
 bool O2RingOxyIISync::sendCommand(uint8_t opcode, const uint8_t* payload, size_t payloadLen,
                                    uint8_t* outPayload, size_t outCap, size_t& outLen,
@@ -136,26 +136,17 @@ bool O2RingOxyIISync::pullFile(const String& filename) {
              filename.c_str(), (unsigned)advertisedSize);
     }
 
-    // Pre-allocate the destination buffer once. Growing a std::vector
-    // incrementally (doubling on each push) fragments the heap and crashes
-    // with bad_alloc on ~80 KB files even when total free heap is sufficient.
-    // malloc() returns nullptr on failure (no exceptions in IDF) so we can
-    // bail gracefully if the file is too big for current heap fragmentation.
+    // Streaming destination: every F3 chunk is forwarded to the sink as it
+    // arrives — orchestrator never holds more than one chunk in RAM. This
+    // is essential for files larger than the largest contiguous heap block
+    // available at sync time (~30 KB observed; real files reach 80+ KB).
     if (advertisedSize == 0) {
         LOG_ERROR("[OxyII] F2 did not advertise file size — refusing pull");
         return false;
     }
-    uint8_t* fileBytes = (uint8_t*)malloc(advertisedSize);
-    if (!fileBytes) {
-#ifndef UNIT_TEST
-        LOG_ERRORF("[OxyII] malloc(%u) failed (free=%u, max_alloc=%u) — file too big for current heap",
-                   (unsigned)advertisedSize,
-                   (unsigned)ESP.getFreeHeap(),
-                   (unsigned)ESP.getMaxAllocHeap());
-#else
-        LOG_ERRORF("[OxyII] malloc(%u) failed — file too big for current heap",
-                   (unsigned)advertisedSize);
-#endif
+    if (!_sink.begin(filename, advertisedSize)) {
+        LOG_ERRORF("[OxyII] sink.begin failed for %s (size=%u)",
+                   filename.c_str(), (unsigned)advertisedSize);
         return false;
     }
 
@@ -190,7 +181,11 @@ bool O2RingOxyIISync::pullFile(const String& filename) {
             ok = false;
             break;
         }
-        memcpy(fileBytes + offset, reply, chunkLen);
+        if (!_sink.writeChunk(reply, chunkLen)) {
+            LOG_ERRORF("[OxyII] sink.writeChunk failed at offset %u", (unsigned)offset);
+            ok = false;
+            break;
+        }
         offset += chunkLen;
         if (offset >= advertisedSize) {
             finished = true;
@@ -198,7 +193,7 @@ bool O2RingOxyIISync::pullFile(const String& filename) {
     }
 
     if (!ok) {
-        free(fileBytes);
+        _sink.finalize(false);
         return false;
     }
 
@@ -206,22 +201,17 @@ bool O2RingOxyIISync::pullFile(const String& filename) {
     if (!sendCommand(OxyIIProtocol::OP_READ_FILE_END, nullptr, 0,
                      reply, sizeof(reply), replyLen)) {
         LOG_ERROR("[OxyII] readFileEnd failed");
-        free(fileBytes);
+        _sink.finalize(false);
         return false;
     }
 
     if (offset == 0) {
         LOG_ERROR("[OxyII] file pull produced zero bytes");
-        free(fileBytes);
+        _sink.finalize(false);
         return false;
     }
 
-    bool callbackOk = _onFileComplete(filename, fileBytes, offset);
-    free(fileBytes);
-    if (!callbackOk) {
-        LOG_ERRORF("[OxyII] onFileComplete returned false for %s", filename.c_str());
-        return false;
-    }
+    _sink.finalize(true);
 
     _lastSyncedCount++;
     _lastSyncedFilename = filename;
