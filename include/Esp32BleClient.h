@@ -22,6 +22,7 @@ public:
     bool writeChunked(const uint8_t* data, size_t len) override;
     bool readResponse(uint8_t* buffer, size_t bufCap, size_t& outLen,
                       uint32_t timeoutMs) override;
+    bool requestMtu(uint16_t mtu) override;
     void disconnect() override;
     bool isConnected() const override;
     bool wasDeviceFound() const override { return _lastScanFound; }
