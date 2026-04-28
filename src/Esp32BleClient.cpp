@@ -101,6 +101,22 @@ bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
     return true;
 }
 
+bool Esp32BleClient::requestMtu(uint16_t mtu) {
+    if (!_connected || !client) return false;
+    // NimBLE auto-exchanges MTU on connect using the device-wide preference
+    // (NimBLEDevice::setMTU). exchangeMTU() forces a fresh ATT Exchange MTU
+    // Request on this connection, which is what OxyII requires before any
+    // file-transfer command.
+    NimBLEDevice::setMTU(mtu);
+    if (!client->exchangeMTU()) {
+        LOG_WARN("[O2Ring BLE] exchangeMTU failed");
+        return false;
+    }
+    uint16_t negotiated = client->getMTU();
+    LOG("[O2Ring BLE] Negotiated MTU: " + String(negotiated));
+    return negotiated >= mtu;
+}
+
 bool Esp32BleClient::writeChunked(const uint8_t* data, size_t len) {
     if (!_connected || !writeChar) return false;
     for (size_t i = 0; i < len; i += 20) {

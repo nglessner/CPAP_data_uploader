@@ -21,6 +21,13 @@ public:
     virtual bool readResponse(uint8_t* buffer, size_t bufCap, size_t& outLen,
                               uint32_t timeoutMs) = 0;
 
+    // Negotiate ATT MTU on the active connection. Returns true iff the
+    // negotiated MTU is at least `mtu`. Required by OxyII (T8520): commands
+    // 0xF2/0xF3/0xF4 are silently rejected when default MTU (23) is in
+    // effect — the firmware uses MTU as a state flag for file transfer.
+    // Caller invokes after connect() and before any file-transfer command.
+    virtual bool requestMtu(uint16_t mtu) = 0;
+
     virtual void disconnect() = 0;
     virtual bool isConnected() const = 0;
 
