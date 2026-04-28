@@ -40,7 +40,8 @@ O2RingOxyIISync::O2RingOxyIISync(IBleClient& ble,
     : _ble(ble), _state(state), _config(config), _onFileComplete(std::move(onFileComplete)) {}
 
 bool O2RingOxyIISync::sendCommand(uint8_t opcode, const uint8_t* payload, size_t payloadLen,
-                                   uint8_t* outPayload, size_t outCap, size_t& outLen) {
+                                   uint8_t* outPayload, size_t outCap, size_t& outLen,
+                                   bool expectReply, uint32_t postSendDelayMs) {
     uint8_t frame[OxyIIProtocol::FRAME_HEADER_LEN + 600 + 1];
     size_t frameLen = OxyIIProtocol::encodeFrame(opcode, payload, payloadLen,
                                                   _seq++, frame, sizeof(frame));
@@ -52,6 +53,12 @@ bool O2RingOxyIISync::sendCommand(uint8_t opcode, const uint8_t* payload, size_t
     if (!_ble.writeChunked(frame, frameLen)) {
         LOG_ERRORF("[OxyII] write failed for opcode 0x%02x", opcode);
         return false;
+    }
+
+    if (!expectReply) {
+        outLen = 0;
+        if (postSendDelayMs > 0) delay(postSendDelayMs);
+        return true;
     }
 
     uint8_t replyFrame[kNotifyBufCap];
@@ -80,7 +87,8 @@ bool O2RingOxyIISync::sendCommand(uint8_t opcode, const uint8_t* payload, size_t
 }
 
 bool O2RingOxyIISync::sendEncryptedCommand(uint8_t opcode, const uint8_t* payload, size_t payloadLen,
-                                            uint8_t* outPayload, size_t outCap, size_t& outLen) {
+                                            uint8_t* outPayload, size_t outCap, size_t& outLen,
+                                            bool expectReply, uint32_t postSendDelayMs) {
     if (!_sessionKeyDerived) {
         LOG_ERROR("[OxyII] sendEncryptedCommand before key derived");
         return false;
@@ -92,7 +100,8 @@ bool O2RingOxyIISync::sendEncryptedCommand(uint8_t opcode, const uint8_t* payloa
         LOG_ERROR("[OxyII] AES encrypt failed");
         return false;
     }
-    return sendCommand(opcode, cipher, cipherLen, outPayload, outCap, outLen);
+    return sendCommand(opcode, cipher, cipherLen, outPayload, outCap, outLen,
+                       expectReply, postSendDelayMs);
 }
 
 bool O2RingOxyIISync::pullFile(const String& filename) {
@@ -210,11 +219,16 @@ O2RingSyncResult O2RingOxyIISync::run() {
     uint8_t reply[kNotifyBufCap];
     size_t replyLen = 0;
 
-    // 0xFF AUTH — encrypted 16-byte payload (zeros are accepted)
+    // 0xFF AUTH — encrypted 16-byte payload (zeros are accepted).
+    // The ring never sends a reply for AUTH (confirmed across all snoops),
+    // so we send fire-and-forget and pause briefly to let the ring process
+    // before the next command. pull_v2.py uses a 1s reply_timeout for the
+    // same effect; 1000ms here matches.
     {
         uint8_t authPayload[16] = {0};
         if (!sendEncryptedCommand(OxyIIProtocol::OP_AUTH, authPayload, sizeof(authPayload),
-                                   reply, sizeof(reply), replyLen)) {
+                                   reply, sizeof(reply), replyLen,
+                                   /*expectReply=*/false, /*postSendDelayMs=*/1000)) {
             _ble.disconnect();
             return O2RingSyncResult::AUTH_FAILED;
         }

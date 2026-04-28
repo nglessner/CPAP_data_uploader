@@ -81,13 +81,22 @@ private:
     // Send-then-receive a single command. Returns the decoded reply bytes
     // (payload only, NOT the wire envelope) on success, or empty on any
     // failure. seq is bumped automatically.
+    //
+    // expectReply=false: send fire-and-forget (no reply timeout, no decode).
+    // Used for 0xFF AUTH which the ring acknowledges silently — no reply is
+    // ever sent (confirmed across pair / sync / our own snoops). pull_v2.py
+    // mirrors this with a 1-second implicit pause; we use postSendDelayMs.
     bool sendCommand(uint8_t opcode, const uint8_t* payload, size_t payloadLen,
-                     uint8_t* outPayload, size_t outCap, size_t& outLen);
+                     uint8_t* outPayload, size_t outCap, size_t& outLen,
+                     bool expectReply = true,
+                     uint32_t postSendDelayMs = 0);
 
     // Like sendCommand but encrypts the payload with _sessionKey before send.
     // Used for 0xFF (AUTH) and 0xF2 (READ_FILE_START).
     bool sendEncryptedCommand(uint8_t opcode, const uint8_t* payload, size_t payloadLen,
-                              uint8_t* outPayload, size_t outCap, size_t& outLen);
+                              uint8_t* outPayload, size_t outCap, size_t& outLen,
+                              bool expectReply = true,
+                              uint32_t postSendDelayMs = 0);
 
     // Pull one file via the F2/F3-loop/F4 sequence. Returns true if all bytes
     // arrived and onFileComplete returned true; false on any failure.

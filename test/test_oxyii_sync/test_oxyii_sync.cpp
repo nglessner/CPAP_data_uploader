@@ -81,9 +81,12 @@ std::vector<uint8_t> buildFileListReply(const std::vector<const char*>& names) {
 
 // Set up the canonical opening exchange (everything before GET_FILE_LIST).
 // Tests append additional replies (file-list, F2/F3/F4) on top.
+//
+// NOTE: AUTH (0xFF) is sent fire-and-forget — the ring never replies to it
+// (confirmed across pair / sync / our snoops; see oxyii_protocol.py and
+// pull_v2.py). So we DO NOT enqueue an AUTH reply here.
 void enqueueOpeningExchange(MockBleClient& mock, const char* sn = "T8520TEST",
                              const char* fw = "2D010002") {
-    mock.enqueueResponse(buildEmptyReply(OP_AUTH));
     mock.enqueueResponse(buildEmptyReply(OP_KEEPALIVE));
     mock.enqueueResponse(buildEmptyReply(OP_SET_UTC_TIME));
     mock.enqueueResponse(buildEmptyReply(OP_HANDSHAKE));
@@ -267,16 +270,25 @@ void test_mtu_negotiation_below_target_returns_mtu_failed() {
     TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::MTU_FAILED, (int)sync.run());
 }
 
-void test_auth_reply_missing_returns_auth_failed() {
+void test_auth_no_reply_proceeds_to_keepalive() {
+    // AUTH (0xFF) is fire-and-forget — the ring never sends an AUTH reply.
+    // With no responses queued at all, the orchestrator should successfully
+    // send AUTH (no reply expected) and then fail at the KEEPALIVE step
+    // which DOES expect a reply. This pins the new contract: AUTH never
+    // returns AUTH_FAILED for "missing reply" because no reply is ever
+    // expected.
     MockBleClient mock;
     O2RingState state;
     state.load();
-    // Don't enqueue any responses — first sendCommand (AUTH) gets nothing.
 
     auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
     O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
 
-    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::AUTH_FAILED, (int)sync.run());
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::HANDSHAKE_FAILED, (int)sync.run());
+    // Confirm AUTH was actually written despite no reply.
+    TEST_ASSERT_TRUE(mock.writeHistory.size() >= 2);
+    TEST_ASSERT_EQUAL_HEX8(OxyIIProtocol::OP_AUTH, mock.writeHistory[0][1]);
+    TEST_ASSERT_EQUAL_HEX8(OxyIIProtocol::OP_KEEPALIVE, mock.writeHistory[1][1]);
 }
 
 void test_get_info_reply_with_no_serial_returns_get_info_failed() {
@@ -284,7 +296,7 @@ void test_get_info_reply_with_no_serial_returns_get_info_failed() {
     O2RingState state;
     state.load();
 
-    mock.enqueueResponse(buildEmptyReply(OP_AUTH));
+    // AUTH is fire-and-forget — no reply enqueued.
     mock.enqueueResponse(buildEmptyReply(OP_KEEPALIVE));
     mock.enqueueResponse(buildEmptyReply(OP_SET_UTC_TIME));
     mock.enqueueResponse(buildEmptyReply(OP_HANDSHAKE));
@@ -396,7 +408,7 @@ int main(int, char**) {
     RUN_TEST(test_connect_fails_returns_connect_failed_when_device_found);
     RUN_TEST(test_connect_fails_returns_no_device_found_when_scan_empty);
     RUN_TEST(test_mtu_negotiation_below_target_returns_mtu_failed);
-    RUN_TEST(test_auth_reply_missing_returns_auth_failed);
+    RUN_TEST(test_auth_no_reply_proceeds_to_keepalive);
     RUN_TEST(test_get_info_reply_with_no_serial_returns_get_info_failed);
     RUN_TEST(test_file_list_missing_returns_file_list_failed);
     RUN_TEST(test_file_transfer_disconnect_mid_pull_returns_file_transfer_failed);
