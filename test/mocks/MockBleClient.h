@@ -38,7 +38,12 @@ public:
     // would otherwise have been overwritten by subsequent commands.
     std::vector<std::vector<uint8_t>> writeHistory;
 
-    bool connect(const String& namePrefix, uint32_t scanSecs) override {
+    // Captures the serviceUuid the orchestrator passed to connect(), so tests
+    // can assert it filters by OxyII service UUID and not by name.
+    String lastConnectFilter;
+
+    bool connect(const String& serviceUuid, uint32_t scanSecs) override {
+        lastConnectFilter = serviceUuid;
         connected = shouldConnect;
         return connected;
     }
@@ -58,6 +63,20 @@ public:
         memcpy(buffer, resp.data(), outLen);
         responses.pop();
         return true;
+    }
+
+    // Negotiated MTU returned by requestMtu(). Tests set this to simulate
+    // success/failure: any value >= the requested mtu is success; smaller
+    // values are failure. Default 247 matches what ViHealth observes against
+    // a real T8520.
+    uint16_t negotiatedMtu = 247;
+
+    // History of MTU values requested. Tests can assert order/count.
+    std::vector<uint16_t> mtuRequests;
+
+    bool requestMtu(uint16_t mtu) override {
+        mtuRequests.push_back(mtu);
+        return negotiatedMtu >= mtu;
     }
 
     void disconnect() override { connected = false; }

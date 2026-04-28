@@ -2,6 +2,7 @@
 
 #include "Esp32BleClient.h"
 #include "Logger.h"
+#include "OxyIIProtocol.h"
 
 uint8_t          Esp32BleClient::_notifyBuf[1024];
 volatile size_t  Esp32BleClient::_notifyLen  = 0;
@@ -13,6 +14,10 @@ void Esp32BleClient::initStack() {
     LOGF("[O2Ring BLE] NimBLEDevice::init (free=%u, max_alloc=%u)",
          (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
     NimBLEDevice::init("");
+    // OxyII (T8520) requires ATT MTU >= 247 before file-transfer commands are
+    // accepted. Set the device-wide preferred MTU here; NimBLE auto-exchanges
+    // during connect, and requestMtu() later verifies the negotiated value.
+    NimBLEDevice::setMTU(247);
     bleInitialized = true;
     LOGF("[O2Ring BLE] NimBLE stack ready (free=%u, max_alloc=%u)",
          (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
@@ -42,7 +47,7 @@ void Esp32BleClient::notifyCallback(NimBLERemoteCharacteristic* pChar,
     }
 }
 
-bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
+bool Esp32BleClient::connect(const String& serviceUuid, uint32_t scanSecs) {
     _lastScanFound = false;
     initStack();  // idempotent; lazy fallback if boot-time init was skipped
     NimBLEScan* scan = NimBLEDevice::getScan();
@@ -51,16 +56,18 @@ bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
     scan->setWindow(99);
     NimBLEScanResults results = scan->start((uint32_t)scanSecs, false);
 
+    NimBLEUUID target(serviceUuid.c_str());
     NimBLEAddress targetAddr;
     bool found = false;
     for (int i = 0; i < results.getCount(); i++) {
         NimBLEAdvertisedDevice d = results.getDevice(i);
-        if (d.haveName() && String(d.getName().c_str()).startsWith(namePrefix)) {
+        if (d.isAdvertisingService(target)) {
             targetAddr = d.getAddress();
             found = true;
             _lastScanFound = true;
-            LOGF("[O2Ring BLE] Found device: %s (%s)",
-                 d.getName().c_str(), d.getAddress().toString().c_str());
+            LOGF("[O2Ring BLE] Found device by service UUID: name=%s addr=%s",
+                 d.haveName() ? d.getName().c_str() : "(unnamed)",
+                 d.getAddress().toString().c_str());
             break;
         }
     }
@@ -74,15 +81,15 @@ bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
         return false;
     }
 
-    NimBLERemoteService* svc = client->getService(O2RingProtocol::SERVICE_UUID);
+    NimBLERemoteService* svc = client->getService(OxyIIProtocol::SERVICE_UUID());
     if (!svc) {
         LOG_WARN("[O2Ring BLE] Service not found");
         disconnect();
         return false;
     }
 
-    writeChar  = svc->getCharacteristic(O2RingProtocol::WRITE_UUID);
-    notifyChar = svc->getCharacteristic(O2RingProtocol::NOTIFY_UUID);
+    writeChar  = svc->getCharacteristic(OxyIIProtocol::WRITE_UUID());
+    notifyChar = svc->getCharacteristic(OxyIIProtocol::NOTIFY_UUID());
     if (!writeChar || !notifyChar) {
         LOG_WARN("[O2Ring BLE] Characteristics not found");
         disconnect();
@@ -99,6 +106,17 @@ bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
     _connected = true;
     LOG("[O2Ring BLE] Connected and subscribed");
     return true;
+}
+
+bool Esp32BleClient::requestMtu(uint16_t mtu) {
+    if (!_connected || !client) return false;
+    // NimBLE auto-exchanges MTU on connect using the device-wide preference
+    // set in initStack(). This call verifies the negotiated value meets the
+    // caller's requirement; if not, the caller should treat it as a hard
+    // failure (T8520 silently rejects file commands at sub-247 MTU).
+    uint16_t negotiated = client->getMTU();
+    LOG("[O2Ring BLE] Negotiated MTU: " + String(negotiated));
+    return negotiated >= mtu;
 }
 
 bool Esp32BleClient::writeChunked(const uint8_t* data, size_t len) {
