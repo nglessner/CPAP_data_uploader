@@ -60,6 +60,20 @@ public:
         return true;
     }
 
+    // Negotiated MTU returned by requestMtu(). Tests set this to simulate
+    // success/failure: any value >= the requested mtu is success; smaller
+    // values are failure. Default 247 matches what ViHealth observes against
+    // a real T8520.
+    uint16_t negotiatedMtu = 247;
+
+    // History of MTU values requested. Tests can assert order/count.
+    std::vector<uint16_t> mtuRequests;
+
+    bool requestMtu(uint16_t mtu) override {
+        mtuRequests.push_back(mtu);
+        return negotiatedMtu >= mtu;
+    }
+
     void disconnect() override { connected = false; }
     bool isConnected() const override { return connected; }
     bool wasDeviceFound() const override { return deviceFoundFlag; }
