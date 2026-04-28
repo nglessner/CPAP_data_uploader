@@ -5,6 +5,10 @@
 // All rendering is client-side JS. ESP32 only serves this once per page load,
 // then the browser polls /api/status, /api/logs, /api/config, /api/sd-activity.
 
+// String-literal concatenation lets us conditionally include OTA-only
+// markup at compile time. ENABLE_OTA_UPDATES and ENABLE_O2RING_SYNC are
+// mutually exclusive (per platformio.ini comment) — when O2Ring is built
+// in, OTA is off, and the OTA tab + panel + JS should not be served.
 static const char WEB_UI_HTML[] PROGMEM = R"HTMLEOF(<!DOCTYPE html><html><head>
 <title>CPAP Uploader</title><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
@@ -70,8 +74,12 @@ nav button:hover:not(.act){background:#3a5a7e}
 <button id=t-logs onclick="tab('logs')">Logs</button>
 <button id=t-cfg onclick="tab('cfg')">Config</button>
 <button id=t-mon onclick="tab('mon')">Monitor</button>
-<button id=t-ota onclick="tab('ota')">OTA</button>
-</nav>
+)HTMLEOF"
+#ifdef ENABLE_OTA_UPDATES
+R"HTMLOTA(<button id=t-ota onclick="tab('ota')">OTA</button>
+)HTMLOTA"
+#endif
+R"HTMLEOF(</nav>
 
 <!-- DASHBOARD -->
 <div id=dash class="page on">
@@ -188,7 +196,9 @@ nav button:hover:not(.act){background:#3a5a7e}
 </div>
 </div>
 
-<!-- OTA -->
+)HTMLEOF"
+#ifdef ENABLE_OTA_UPDATES
+R"HTMLOTA(<!-- OTA -->
 <div id=ota class=page>
 <div class=wb><h3>WARNING</h3><ul>
 <li><strong>Do not power off</strong> during update</li>
@@ -215,6 +225,9 @@ nav button:hover:not(.act){background:#3a5a7e}
 </div>
 </div>
 </div>
+)HTMLOTA"
+#endif
+R"HTMLEOF(
 </div>
 
 <div id=toast class=toast></div>
@@ -224,8 +237,10 @@ nav button:hover:not(.act){background:#3a5a7e}
 var cfg={},monPoll=null,logPoll=null,curTab='dash';
 function tab(t){
   ['dash','logs','cfg','mon','ota'].forEach(function(x){
-    document.getElementById(x).classList.toggle('on',x===t);
-    document.getElementById('t-'+x).classList.toggle('act',x===t);
+    var p=document.getElementById(x);
+    var b=document.getElementById('t-'+x);
+    if(p)p.classList.toggle('on',x===t);
+    if(b)b.classList.toggle('act',x===t);
   });
   curTab=t;
   if(t==='logs'){startLogPoll();}else{stopLogPoll();}
@@ -562,7 +577,9 @@ function resetState(){
   }).finally(function(){setTimeout(function(){b._busy=0;b.textContent='Reset State';},1000);});
 }
 
-var otaBusy=false;
+)HTMLEOF"
+#ifdef ENABLE_OTA_UPDATES
+R"HTMLOTA(var otaBusy=false;
 function setMsg(id,cls,msg){var e=document.getElementById(id);if(e){e.className='sm '+cls;e.textContent=msg;}}
 document.getElementById('f-up').addEventListener('submit',function(e){
   e.preventDefault();if(otaBusy)return;
@@ -587,6 +604,9 @@ function handleOtaResult(d,sid){
   if(d.success){setMsg(sid,'ok','Success! '+d.message);var t=30;var iv=setInterval(function(){t--;setMsg(sid,'ok','Redirecting in '+t+'s...');if(t<=0){clearInterval(iv);location.href='/';}},1000);}
   else setMsg(sid,'er','Failed: '+d.message);
 }
+)HTMLOTA"
+#endif
+R"HTMLEOF(
 
 loadCfg();
 startStatusPoll();
