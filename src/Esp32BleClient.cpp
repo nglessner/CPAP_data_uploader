@@ -14,6 +14,10 @@ void Esp32BleClient::initStack() {
     LOGF("[O2Ring BLE] NimBLEDevice::init (free=%u, max_alloc=%u)",
          (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
     NimBLEDevice::init("");
+    // OxyII (T8520) requires ATT MTU >= 247 before file-transfer commands are
+    // accepted. Set the device-wide preferred MTU here; NimBLE auto-exchanges
+    // during connect, and requestMtu() later verifies the negotiated value.
+    NimBLEDevice::setMTU(247);
     bleInitialized = true;
     LOGF("[O2Ring BLE] NimBLE stack ready (free=%u, max_alloc=%u)",
          (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
@@ -105,14 +109,9 @@ bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
 bool Esp32BleClient::requestMtu(uint16_t mtu) {
     if (!_connected || !client) return false;
     // NimBLE auto-exchanges MTU on connect using the device-wide preference
-    // (NimBLEDevice::setMTU). exchangeMTU() forces a fresh ATT Exchange MTU
-    // Request on this connection, which is what OxyII requires before any
-    // file-transfer command.
-    NimBLEDevice::setMTU(mtu);
-    if (!client->exchangeMTU()) {
-        LOG_WARN("[O2Ring BLE] exchangeMTU failed");
-        return false;
-    }
+    // set in initStack(). This call verifies the negotiated value meets the
+    // caller's requirement; if not, the caller should treat it as a hard
+    // failure (T8520 silently rejects file commands at sub-247 MTU).
     uint16_t negotiated = client->getMTU();
     LOG("[O2Ring BLE] Negotiated MTU: " + String(negotiated));
     return negotiated >= mtu;
