@@ -105,8 +105,10 @@ bool O2RingOxyIISync::sendEncryptedCommand(uint8_t opcode, const uint8_t* payloa
 }
 
 bool O2RingOxyIISync::pullFile(const String& filename) {
-    // F2 — READ_FILE_START. Encrypted 20-byte payload: 16-byte filename slot
-    // (null-padded) + u32 LE file_type (0 = .dat / OXY).
+    // F2 — READ_FILE_START. PLAINTEXT 20-byte payload: 16-byte filename slot
+    // (null-padded) + u32 LE file_type (0 = .dat / OXY). Per the protocol
+    // walkthrough: "Only cmd=0xFF (auth) is AES-encrypted. Everything else
+    // (... READ_FILE_START / DATA / END, ...) is plaintext."
     uint8_t startPayload[20];
     if (!OxyIIProtocol::buildReadFileStartPayload(filename.c_str(), filename.length(),
                                                    /*fileType=*/0, startPayload, sizeof(startPayload))) {
@@ -116,10 +118,22 @@ bool O2RingOxyIISync::pullFile(const String& filename) {
 
     uint8_t reply[kNotifyBufCap];
     size_t replyLen = 0;
-    if (!sendEncryptedCommand(OxyIIProtocol::OP_READ_FILE_START,
-                               startPayload, sizeof(startPayload),
-                               reply, sizeof(reply), replyLen)) {
+    if (!sendCommand(OxyIIProtocol::OP_READ_FILE_START,
+                     startPayload, sizeof(startPayload),
+                     reply, sizeof(reply), replyLen)) {
         return false;
+    }
+    // Reply payload is u32-LE file size. Use it to bound the F3 loop so we
+    // don't rely solely on "shorter chunk = EOF" — which fails if the file
+    // is exactly one chunk long.
+    uint32_t advertisedSize = 0;
+    if (replyLen >= 4) {
+        advertisedSize = (uint32_t)reply[0]
+                       | ((uint32_t)reply[1] << 8)
+                       | ((uint32_t)reply[2] << 16)
+                       | ((uint32_t)reply[3] << 24);
+        LOGF("[OxyII] %s advertised size = %u bytes",
+             filename.c_str(), (unsigned)advertisedSize);
     }
 
     // F3 loop — fetch chunks at increasing offsets until a chunk comes back
@@ -148,11 +162,14 @@ bool O2RingOxyIISync::pullFile(const String& filename) {
             fileBytes.insert(fileBytes.end(), reply, reply + chunkLen);
             offset += chunkLen;
         }
-        // End-of-file signal: a chunk shorter than the previous one. The first
-        // short-or-equal chunk after at least one chunk closes the loop.
-        if (prevChunkLen != 0 && chunkLen < prevChunkLen) {
+        if (chunkLen == 0) {
+            // Empty chunk = EOF (matches pull_v2.py).
             finished = true;
-        } else if (chunkLen == 0) {
+        } else if (advertisedSize > 0 && offset >= advertisedSize) {
+            // Reached size advertised by F2 reply.
+            finished = true;
+        } else if (prevChunkLen != 0 && chunkLen < prevChunkLen) {
+            // Fallback when no advertised size: short-chunk = EOF.
             finished = true;
         }
         prevChunkLen = chunkLen;
