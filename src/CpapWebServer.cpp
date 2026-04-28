@@ -8,7 +8,7 @@
 
 #ifdef ENABLE_O2RING_SYNC
 #include "O2RingStatus.h"
-#include "O2RingSync.h"  // for O2RingSyncResult enum -> human string
+#include "O2RingOxyIISync.h"  // for O2RingSyncResult enum -> human string
 #endif
 
 // Global trigger flags
@@ -1350,13 +1350,17 @@ void CpapWebServer::handleMonitorPage() {
 #ifdef ENABLE_O2RING_SYNC
 static const char* o2ringResultName(int code) {
     switch ((O2RingSyncResult)code) {
-        case O2RingSyncResult::OK:                return "OK";
-        case O2RingSyncResult::DEVICE_NOT_FOUND:  return "DEVICE_NOT_FOUND";
-        case O2RingSyncResult::SMB_ERROR:         return "SMB_ERROR";
-        case O2RingSyncResult::BLE_ERROR:         return "BLE_ERROR";
-        case O2RingSyncResult::NOTHING_TO_SYNC:   return "NOTHING_TO_SYNC";
-        case O2RingSyncResult::CONNECT_FAILED:    return "CONNECT_FAILED";
-        default:                                  return "UNKNOWN";
+        case O2RingSyncResult::OK:                   return "OK";
+        case O2RingSyncResult::NO_DEVICE_FOUND:      return "NO_DEVICE_FOUND";
+        case O2RingSyncResult::CONNECT_FAILED:       return "CONNECT_FAILED";
+        case O2RingSyncResult::MTU_FAILED:           return "MTU_FAILED";
+        case O2RingSyncResult::SUBSCRIBE_FAILED:     return "SUBSCRIBE_FAILED";
+        case O2RingSyncResult::AUTH_FAILED:          return "AUTH_FAILED";
+        case O2RingSyncResult::HANDSHAKE_FAILED:     return "HANDSHAKE_FAILED";
+        case O2RingSyncResult::GET_INFO_FAILED:      return "GET_INFO_FAILED";
+        case O2RingSyncResult::FILE_LIST_FAILED:     return "FILE_LIST_FAILED";
+        case O2RingSyncResult::FILE_TRANSFER_FAILED: return "FILE_TRANSFER_FAILED";
+        default:                                     return "UNKNOWN";
     }
 }
 
