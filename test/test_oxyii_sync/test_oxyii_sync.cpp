@@ -52,6 +52,18 @@ std::vector<uint8_t> buildEmptyReply(uint8_t opcode) {
     return buildFrame(opcode, nullptr, 0);
 }
 
+// READ_FILE_START reply payload is u32-LE total file size. The orchestrator
+// uses this to bound the F3 loop and pre-allocate the destination buffer.
+std::vector<uint8_t> buildReadFileStartReply(uint32_t advertisedSize) {
+    uint8_t payload[4] = {
+        static_cast<uint8_t>(advertisedSize & 0xFF),
+        static_cast<uint8_t>((advertisedSize >> 8) & 0xFF),
+        static_cast<uint8_t>((advertisedSize >> 16) & 0xFF),
+        static_cast<uint8_t>((advertisedSize >> 24) & 0xFF),
+    };
+    return buildFrame(OP_READ_FILE_START, payload, sizeof(payload));
+}
+
 // Build a 60-byte GET_INFO reply payload with a known serial + firmware.
 std::vector<uint8_t> buildGetInfoReply(const char* sn, const char* fw) {
     uint8_t payload[60] = {0};
@@ -139,9 +151,9 @@ void test_happy_path_one_new_file() {
     enqueueOpeningExchange(mock);
     mock.enqueueResponse(buildFileListReply({"20260427213521"}));
 
-    // Per-file: F2 ack, then F3 returns one full chunk (8 bytes) + one shorter
-    // chunk (4 bytes) → loop ends on shorter, then F4 ack.
-    mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_START));
+    // Per-file: F2 advertises size = 12, then F3 returns one 8-byte chunk +
+    // one 4-byte chunk; loop terminates when offset reaches advertised size.
+    mock.enqueueResponse(buildReadFileStartReply(12));
     {
         uint8_t chunk1[8] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22};
         mock.enqueueResponse(buildFrame(OP_READ_FILE_DATA, chunk1, sizeof(chunk1)));
@@ -208,12 +220,11 @@ void test_dedup_skips_already_synced() {
     enqueueOpeningExchange(mock);
     mock.enqueueResponse(buildFileListReply({"20260427100000", "20260427213521"}));
     // Only the new filename should drive an F2/F3/F4 sequence.
-    mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_START));
+    mock.enqueueResponse(buildReadFileStartReply(4));
     {
         uint8_t chunk[4] = {1, 2, 3, 4};
         mock.enqueueResponse(buildFrame(OP_READ_FILE_DATA, chunk, sizeof(chunk)));
     }
-    mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_DATA));  // 0-byte chunk = end
     mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_END));
 
     String pulled;
@@ -330,8 +341,9 @@ void test_file_transfer_disconnect_mid_pull_returns_file_transfer_failed() {
 
     enqueueOpeningExchange(mock);
     mock.enqueueResponse(buildFileListReply({"20260427213521"}));
-    mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_START));
-    // First chunk arrives ...
+    // F2 advertises 8 bytes; F3 returns only the first 4, then queue is
+    // empty so the next F3 fetch times out before reaching advertised size.
+    mock.enqueueResponse(buildReadFileStartReply(8));
     {
         uint8_t chunk[4] = {1, 2, 3, 4};
         mock.enqueueResponse(buildFrame(OP_READ_FILE_DATA, chunk, sizeof(chunk)));
@@ -357,12 +369,11 @@ void test_on_file_complete_failure_leaves_filename_unsynced() {
 
     enqueueOpeningExchange(mock);
     mock.enqueueResponse(buildFileListReply({"20260427213521"}));
-    mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_START));
+    mock.enqueueResponse(buildReadFileStartReply(4));
     {
         uint8_t chunk[4] = {1, 2, 3, 4};
         mock.enqueueResponse(buildFrame(OP_READ_FILE_DATA, chunk, sizeof(chunk)));
     }
-    mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_DATA));  // EOF
     mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_END));
 
     auto onComplete = [&](const String&, const uint8_t*, size_t) { return false; };
@@ -382,12 +393,11 @@ void test_dedup_pruned_to_ring_list() {
 
     enqueueOpeningExchange(mock);
     mock.enqueueResponse(buildFileListReply({"20260427213521"}));
-    mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_START));
+    mock.enqueueResponse(buildReadFileStartReply(4));
     {
         uint8_t chunk[4] = {1, 2, 3, 4};
         mock.enqueueResponse(buildFrame(OP_READ_FILE_DATA, chunk, sizeof(chunk)));
     }
-    mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_DATA));
     mock.enqueueResponse(buildEmptyReply(OP_READ_FILE_END));
 
     auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };

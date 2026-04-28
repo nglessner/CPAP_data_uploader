@@ -136,58 +136,89 @@ bool O2RingOxyIISync::pullFile(const String& filename) {
              filename.c_str(), (unsigned)advertisedSize);
     }
 
-    // F3 loop — fetch chunks at increasing offsets until a chunk comes back
-    // shorter than the previous one (signaling end of file).
-    std::vector<uint8_t> fileBytes;
-    fileBytes.reserve(8 * 1024);   // initial guess; std::vector will grow if needed
+    // Pre-allocate the destination buffer once. Growing a std::vector
+    // incrementally (doubling on each push) fragments the heap and crashes
+    // with bad_alloc on ~80 KB files even when total free heap is sufficient.
+    // malloc() returns nullptr on failure (no exceptions in IDF) so we can
+    // bail gracefully if the file is too big for current heap fragmentation.
+    if (advertisedSize == 0) {
+        LOG_ERROR("[OxyII] F2 did not advertise file size — refusing pull");
+        return false;
+    }
+    uint8_t* fileBytes = (uint8_t*)malloc(advertisedSize);
+    if (!fileBytes) {
+#ifndef UNIT_TEST
+        LOG_ERRORF("[OxyII] malloc(%u) failed (free=%u, max_alloc=%u) — file too big for current heap",
+                   (unsigned)advertisedSize,
+                   (unsigned)ESP.getFreeHeap(),
+                   (unsigned)ESP.getMaxAllocHeap());
+#else
+        LOG_ERRORF("[OxyII] malloc(%u) failed — file too big for current heap",
+                   (unsigned)advertisedSize);
+#endif
+        return false;
+    }
 
+    // F3 loop — fetch chunks at increasing offsets until we've read
+    // advertisedSize bytes, or the ring sends an empty chunk (EOF).
     uint32_t offset = 0;
-    size_t   prevChunkLen = 0;
     bool     finished = false;
+    bool     ok = true;
 
     while (!finished) {
         uint8_t dataPayload[4];
         if (!OxyIIProtocol::buildReadFileDataPayload(offset, dataPayload, sizeof(dataPayload))) {
             LOG_ERROR("[OxyII] readFileData payload build failed");
-            return false;
+            ok = false;
+            break;
         }
         size_t chunkLen = 0;
         if (!sendCommand(OxyIIProtocol::OP_READ_FILE_DATA,
                          dataPayload, sizeof(dataPayload),
                          reply, sizeof(reply), chunkLen)) {
             LOG_ERRORF("[OxyII] readFileData failed at offset %u", (unsigned)offset);
-            return false;
-        }
-        if (chunkLen > 0) {
-            fileBytes.insert(fileBytes.end(), reply, reply + chunkLen);
-            offset += chunkLen;
+            ok = false;
+            break;
         }
         if (chunkLen == 0) {
-            // Empty chunk = EOF (matches pull_v2.py).
-            finished = true;
-        } else if (advertisedSize > 0 && offset >= advertisedSize) {
-            // Reached size advertised by F2 reply.
-            finished = true;
-        } else if (prevChunkLen != 0 && chunkLen < prevChunkLen) {
-            // Fallback when no advertised size: short-chunk = EOF.
+            finished = true;  // empty chunk = EOF
+            break;
+        }
+        if (offset + chunkLen > advertisedSize) {
+            LOG_ERRORF("[OxyII] chunk overrun: offset=%u + chunk=%u > advertised=%u",
+                       (unsigned)offset, (unsigned)chunkLen, (unsigned)advertisedSize);
+            ok = false;
+            break;
+        }
+        memcpy(fileBytes + offset, reply, chunkLen);
+        offset += chunkLen;
+        if (offset >= advertisedSize) {
             finished = true;
         }
-        prevChunkLen = chunkLen;
+    }
+
+    if (!ok) {
+        free(fileBytes);
+        return false;
     }
 
     // F4 — READ_FILE_END
     if (!sendCommand(OxyIIProtocol::OP_READ_FILE_END, nullptr, 0,
                      reply, sizeof(reply), replyLen)) {
         LOG_ERROR("[OxyII] readFileEnd failed");
+        free(fileBytes);
         return false;
     }
 
-    if (fileBytes.empty()) {
+    if (offset == 0) {
         LOG_ERROR("[OxyII] file pull produced zero bytes");
+        free(fileBytes);
         return false;
     }
 
-    if (!_onFileComplete(filename, fileBytes.data(), fileBytes.size())) {
+    bool callbackOk = _onFileComplete(filename, fileBytes, offset);
+    free(fileBytes);
+    if (!callbackOk) {
         LOG_ERRORF("[OxyII] onFileComplete returned false for %s", filename.c_str());
         return false;
     }
