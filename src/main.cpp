@@ -27,6 +27,7 @@ bool g_heapRecoveryBoot = false;
 #ifdef ENABLE_O2RING_SYNC
 #include "O2RingOxyIISync.h"
 #include "O2RingState.h"
+#include "O2RingStatus.h"
 #ifdef ENABLE_SMB_UPLOAD
 #include "SMBUploader.h"
 #endif
@@ -940,6 +941,20 @@ void handleO2RingSync() {
     O2RingSMBStreamingSink sink;
     O2RingOxyIISync sync(bleClient, state, syncCfg, sink);
     O2RingSyncResult result = sync.run();
+
+    // Persist the outcome so the dashboard's O2Ring Sync card has fresh
+    // data. Use recordPreservingFilename for early-failure paths (no INFO
+    // yet, no file list yet); otherwise record with the most recent
+    // filename the orchestrator pulled.
+    O2RingStatus statusRec;
+    statusRec.load();
+    if (result == O2RingSyncResult::OK) {
+        statusRec.record((int)result, (uint16_t)sync.lastSyncedCount(),
+                         sync.lastSyncedFilename());
+    } else {
+        statusRec.recordPreservingFilename((int)result);
+    }
+    statusRec.save();
 
     switch (result) {
         case O2RingSyncResult::OK:
