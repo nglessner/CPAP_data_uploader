@@ -38,7 +38,12 @@ public:
     // would otherwise have been overwritten by subsequent commands.
     std::vector<std::vector<uint8_t>> writeHistory;
 
-    bool connect(const String& namePrefix, uint32_t scanSecs) override {
+    // Captures the serviceUuid the orchestrator passed to connect(), so tests
+    // can assert it filters by OxyII service UUID and not by name.
+    String lastConnectFilter;
+
+    bool connect(const String& serviceUuid, uint32_t scanSecs) override {
+        lastConnectFilter = serviceUuid;
         connected = shouldConnect;
         return connected;
     }

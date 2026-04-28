@@ -47,7 +47,7 @@ void Esp32BleClient::notifyCallback(NimBLERemoteCharacteristic* pChar,
     }
 }
 
-bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
+bool Esp32BleClient::connect(const String& serviceUuid, uint32_t scanSecs) {
     _lastScanFound = false;
     initStack();  // idempotent; lazy fallback if boot-time init was skipped
     NimBLEScan* scan = NimBLEDevice::getScan();
@@ -56,16 +56,18 @@ bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
     scan->setWindow(99);
     NimBLEScanResults results = scan->start((uint32_t)scanSecs, false);
 
+    NimBLEUUID target(serviceUuid.c_str());
     NimBLEAddress targetAddr;
     bool found = false;
     for (int i = 0; i < results.getCount(); i++) {
         NimBLEAdvertisedDevice d = results.getDevice(i);
-        if (d.haveName() && String(d.getName().c_str()).startsWith(namePrefix)) {
+        if (d.isAdvertisingService(target)) {
             targetAddr = d.getAddress();
             found = true;
             _lastScanFound = true;
-            LOGF("[O2Ring BLE] Found device: %s (%s)",
-                 d.getName().c_str(), d.getAddress().toString().c_str());
+            LOGF("[O2Ring BLE] Found device by service UUID: name=%s addr=%s",
+                 d.haveName() ? d.getName().c_str() : "(unnamed)",
+                 d.getAddress().toString().c_str());
             break;
         }
     }

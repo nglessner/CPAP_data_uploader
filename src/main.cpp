@@ -859,7 +859,10 @@ static bool uploadO2RingFile(const String& filename, const uint8_t* data, size_t
 }
 
 void handleO2RingSync() {
-    LOGF("[FSM] OxyII sync starting (device: %s, scan: %ds)",
+    // O2RING_DEVICE_NAME is no longer used as a scan filter (we filter by
+    // OxyII service UUID); keep logging it as a human-readable label so
+    // the operator sees which ring the firmware is configured for.
+    LOGF("[FSM] OxyII sync starting (label: %s, scan: %ds)",
          config.getO2RingDeviceName().c_str(), config.getO2RingScanSeconds());
 
     Esp32BleClient bleClient;
@@ -867,7 +870,6 @@ void handleO2RingSync() {
     state.load();
 
     OxyIIConfig syncCfg;
-    syncCfg.deviceNamePrefix = config.getO2RingDeviceName();
     syncCfg.scanSeconds = config.getO2RingScanSeconds();
     syncCfg.mtu = 247;
     syncCfg.cmdTimeoutMs = 5000;

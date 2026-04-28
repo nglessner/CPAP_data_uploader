@@ -8,9 +8,14 @@ class IBleClient {
 public:
     virtual ~IBleClient() = default;
 
-    // Scan for a device whose advertised name starts with namePrefix.
-    // Returns true if connected within scanSecs seconds.
-    virtual bool connect(const String& namePrefix, uint32_t scanSecs) = 0;
+    // Scan for a device advertising the given GATT service UUID and connect
+    // to the first match. Returns true if connected within scanSecs seconds.
+    //
+    // Filtering by service UUID (rather than advertised name) is robust to
+    // the T8520's two advertising modes (T8520_<mac> when idle vs. S8-AW
+    // <serial> when in OxyII mode) and to firmware-rev name changes; both
+    // modes still expose the same E8FB0001-... service.
+    virtual bool connect(const String& serviceUuid, uint32_t scanSecs) = 0;
 
     // Write data to the write characteristic, chunked at 20 bytes.
     virtual bool writeChunked(const uint8_t* data, size_t len) = 0;
@@ -31,7 +36,7 @@ public:
     virtual void disconnect() = 0;
     virtual bool isConnected() const = 0;
 
-    // Returns true iff the most recent connect() observed a name-prefix
+    // Returns true iff the most recent connect() observed a service-UUID
     // match in scan results — regardless of whether the subsequent GATT
     // steps succeeded. Reset to false at the start of each connect()
     // call. Callers query it only after connect() returned false to

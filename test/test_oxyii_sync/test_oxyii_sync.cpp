@@ -92,7 +92,6 @@ void enqueueOpeningExchange(MockBleClient& mock, const char* sn = "T8520TEST",
 
 OxyIIConfig defaultConfig() {
     OxyIIConfig cfg;
-    cfg.deviceNamePrefix = "T8520";
     cfg.scanSeconds = 5;
     cfg.mtu = 247;
     cfg.cmdTimeoutMs = 1000;
@@ -106,6 +105,26 @@ void setUp(void) {
     MockTimeState::reset();
 }
 void tearDown(void) { Preferences::clearAll(); }
+
+// -------------------- scan filter --------------------
+
+void test_orchestrator_filters_scan_by_oxyii_service_uuid() {
+    MockBleClient mock;
+    O2RingState state;
+    state.load();
+
+    enqueueOpeningExchange(mock);
+    mock.enqueueResponse(buildFileListReply({}));  // empty file list
+
+    auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
+    O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
+    sync.run();
+
+    // Service UUID must be the canonical OxyII one — robust to T8520_/S8-AW
+    // advertising-name modes.
+    TEST_ASSERT_EQUAL_STRING(OxyIIProtocol::SERVICE_UUID(),
+                             mock.lastConnectFilter.c_str());
+}
 
 // -------------------- happy paths --------------------
 
@@ -370,6 +389,7 @@ void test_dedup_pruned_to_ring_list() {
 
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_orchestrator_filters_scan_by_oxyii_service_uuid);
     RUN_TEST(test_happy_path_one_new_file);
     RUN_TEST(test_happy_path_no_new_files_returns_ok);
     RUN_TEST(test_dedup_skips_already_synced);

@@ -28,7 +28,6 @@ enum class O2RingSyncResult {
 // struct so callers (live firmware vs unit tests) can fill the same fields
 // without coupling to Config.
 struct OxyIIConfig {
-    String   deviceNamePrefix;     // e.g. "T8520"
     uint32_t scanSeconds = 10;
     uint16_t mtu         = 247;
     uint32_t cmdTimeoutMs = 5000;

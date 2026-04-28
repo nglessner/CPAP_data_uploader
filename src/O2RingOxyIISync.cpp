@@ -178,7 +178,7 @@ O2RingSyncResult O2RingOxyIISync::run() {
     _lastSyncedCount = 0;
     _lastSyncedFilename = "";
 
-    if (!_ble.connect(_config.deviceNamePrefix, _config.scanSeconds)) {
+    if (!_ble.connect(OxyIIProtocol::SERVICE_UUID(), _config.scanSeconds)) {
         if (_ble.wasDeviceFound()) {
             LOG_WARN("[OxyII] Device found but connection failed");
             return O2RingSyncResult::CONNECT_FAILED;
