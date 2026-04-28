@@ -98,6 +98,7 @@ nav button:hover:not(.act){background:#3a5a7e}
 <div class=row><span class=k>Result</span><span id=d-o2r-res class=v>—</span></div>
 <div class=row><span class=k>Files synced</span><span id=d-o2r-n class=v>—</span></div>
 <div class=row><span class=k>Last file on ring</span><span id=d-o2r-fn class=v>—</span></div>
+<div class=actions style="margin-top:10px"><button id=btn-o2r-sync class="btn bp" onclick=triggerO2RingSync()>&#128260; Sync Now</button></div>
 </div>
 </div>
 <div class=cards>
@@ -532,6 +533,16 @@ function triggerUpload(){
     toast(d.message||'Upload triggered.',mode);
   }).catch(function(){toast('Failed to trigger upload.','er');
   }).finally(function(){setTimeout(function(){b._busy=0;b.textContent='\u25b2 Trigger Upload';},700);});
+}
+function triggerO2RingSync(){
+  var b=document.getElementById('btn-o2r-sync');
+  if(!b||b._busy)return;b._busy=1;b.textContent='Triggering...';
+  fetch('/trigger-o2ring-sync',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    var mode=d.status==='success'?'ok':d.status==='busy'||d.status==='disabled'?'warn':'er';
+    toast(d.message||'O2Ring sync triggered.',mode);
+    if(d.status==='success'){pollStatus();}
+  }).catch(function(){toast('Failed to trigger O2Ring sync.','er');
+  }).finally(function(){setTimeout(function(){b._busy=0;b.innerHTML='&#128260; Sync Now';},700);});
 }
 function softReboot(){
   var b=document.getElementById('btn-srb');

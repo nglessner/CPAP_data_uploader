@@ -115,6 +115,9 @@ bool g_debugMode = false;
 // External trigger flags (defined in WebServer.cpp)
 extern volatile bool g_triggerUploadFlag;
 extern volatile bool g_resetStateFlag;
+#ifdef ENABLE_O2RING_SYNC
+extern volatile bool g_triggerO2RingSyncFlag;
+#endif
 
 // Monitoring trigger flags (defined in WebServer.cpp)
 extern volatile bool g_monitorActivityFlag;
@@ -1029,6 +1032,19 @@ void loop() {
         uploadCycleHadTimeout = false;
         transitionTo(UploadState::ACQUIRING);
     }
+
+#ifdef ENABLE_O2RING_SYNC
+    // O2Ring sync trigger — jump straight into O2RING_SYNC, bypassing any
+    // remaining cooldown. Blocked while an upload task is running so the FSM
+    // can finish releasing the SD bus first. The trigger endpoint already
+    // gates on isO2RingEnabled(), so no need to re-check here.
+    if (g_triggerO2RingSyncFlag && !uploadTaskRunning &&
+        currentState != UploadState::O2RING_SYNC) {
+        LOG("=== O2Ring Sync Triggered via Web Interface ===");
+        g_triggerO2RingSyncFlag = false;
+        transitionTo(UploadState::O2RING_SYNC);
+    }
+#endif
     
     // Check for monitoring triggers
     if (g_monitorActivityFlag) {
