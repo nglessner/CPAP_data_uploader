@@ -139,9 +139,9 @@ void test_happy_path_one_new_file() {
     };
 
     O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
-    OxyIIResult result = sync.run();
+    O2RingSyncResult result = sync.run();
 
-    TEST_ASSERT_EQUAL_INT((int)OxyIIResult::OK, (int)result);
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::OK, (int)result);
     TEST_ASSERT_EQUAL_size_t(1, sync.lastSyncedCount());
     TEST_ASSERT_EQUAL_STRING("20260427213521", sync.lastSyncedFilename().c_str());
     TEST_ASSERT_EQUAL_STRING("20260427213521", capturedFilename.c_str());
@@ -170,9 +170,9 @@ void test_happy_path_no_new_files_returns_ok() {
     auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
     O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
 
-    OxyIIResult result = sync.run();
+    O2RingSyncResult result = sync.run();
 
-    TEST_ASSERT_EQUAL_INT((int)OxyIIResult::OK, (int)result);
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::OK, (int)result);
     TEST_ASSERT_EQUAL_size_t(0, sync.lastSyncedCount());
 }
 
@@ -201,9 +201,9 @@ void test_dedup_skips_already_synced() {
     };
     O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
 
-    OxyIIResult result = sync.run();
+    O2RingSyncResult result = sync.run();
 
-    TEST_ASSERT_EQUAL_INT((int)OxyIIResult::OK, (int)result);
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::OK, (int)result);
     TEST_ASSERT_EQUAL_size_t(1, sync.lastSyncedCount());
     TEST_ASSERT_EQUAL_STRING("20260427213521", pulled.c_str());
 }
@@ -220,7 +220,7 @@ void test_connect_fails_returns_connect_failed_when_device_found() {
     auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
     O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
 
-    TEST_ASSERT_EQUAL_INT((int)OxyIIResult::CONNECT_FAILED, (int)sync.run());
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::CONNECT_FAILED, (int)sync.run());
 }
 
 void test_connect_fails_returns_no_device_found_when_scan_empty() {
@@ -233,7 +233,7 @@ void test_connect_fails_returns_no_device_found_when_scan_empty() {
     auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
     O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
 
-    TEST_ASSERT_EQUAL_INT((int)OxyIIResult::NO_DEVICE_FOUND, (int)sync.run());
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::NO_DEVICE_FOUND, (int)sync.run());
 }
 
 void test_mtu_negotiation_below_target_returns_mtu_failed() {
@@ -245,7 +245,7 @@ void test_mtu_negotiation_below_target_returns_mtu_failed() {
     auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
     O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
 
-    TEST_ASSERT_EQUAL_INT((int)OxyIIResult::MTU_FAILED, (int)sync.run());
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::MTU_FAILED, (int)sync.run());
 }
 
 void test_auth_reply_missing_returns_auth_failed() {
@@ -257,7 +257,7 @@ void test_auth_reply_missing_returns_auth_failed() {
     auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
     O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
 
-    TEST_ASSERT_EQUAL_INT((int)OxyIIResult::AUTH_FAILED, (int)sync.run());
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::AUTH_FAILED, (int)sync.run());
 }
 
 void test_get_info_reply_with_no_serial_returns_get_info_failed() {
@@ -275,7 +275,7 @@ void test_get_info_reply_with_no_serial_returns_get_info_failed() {
     auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
     O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
 
-    TEST_ASSERT_EQUAL_INT((int)OxyIIResult::GET_INFO_FAILED, (int)sync.run());
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::GET_INFO_FAILED, (int)sync.run());
 }
 
 void test_file_list_missing_returns_file_list_failed() {
@@ -289,7 +289,7 @@ void test_file_list_missing_returns_file_list_failed() {
     auto onComplete = [&](const String&, const uint8_t*, size_t) { return true; };
     O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
 
-    TEST_ASSERT_EQUAL_INT((int)OxyIIResult::FILE_LIST_FAILED, (int)sync.run());
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::FILE_LIST_FAILED, (int)sync.run());
 }
 
 void test_file_transfer_disconnect_mid_pull_returns_file_transfer_failed() {
@@ -314,7 +314,7 @@ void test_file_transfer_disconnect_mid_pull_returns_file_transfer_failed() {
     };
     O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
 
-    TEST_ASSERT_EQUAL_INT((int)OxyIIResult::FILE_TRANSFER_FAILED, (int)sync.run());
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::FILE_TRANSFER_FAILED, (int)sync.run());
     TEST_ASSERT_FALSE(callbackInvoked);
     TEST_ASSERT_FALSE(state.hasSeen("20260427213521"));
 }
@@ -337,7 +337,7 @@ void test_on_file_complete_failure_leaves_filename_unsynced() {
     auto onComplete = [&](const String&, const uint8_t*, size_t) { return false; };
     O2RingOxyIISync sync(mock, state, defaultConfig(), onComplete);
 
-    TEST_ASSERT_EQUAL_INT((int)OxyIIResult::FILE_TRANSFER_FAILED, (int)sync.run());
+    TEST_ASSERT_EQUAL_INT((int)O2RingSyncResult::FILE_TRANSFER_FAILED, (int)sync.run());
     TEST_ASSERT_FALSE(state.hasSeen("20260427213521"));
 }
 

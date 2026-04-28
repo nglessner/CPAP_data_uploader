@@ -2,6 +2,7 @@
 
 #include "Esp32BleClient.h"
 #include "Logger.h"
+#include "OxyIIProtocol.h"
 
 uint8_t          Esp32BleClient::_notifyBuf[1024];
 volatile size_t  Esp32BleClient::_notifyLen  = 0;
@@ -74,15 +75,15 @@ bool Esp32BleClient::connect(const String& namePrefix, uint32_t scanSecs) {
         return false;
     }
 
-    NimBLERemoteService* svc = client->getService(O2RingProtocol::SERVICE_UUID);
+    NimBLERemoteService* svc = client->getService(OxyIIProtocol::SERVICE_UUID());
     if (!svc) {
         LOG_WARN("[O2Ring BLE] Service not found");
         disconnect();
         return false;
     }
 
-    writeChar  = svc->getCharacteristic(O2RingProtocol::WRITE_UUID);
-    notifyChar = svc->getCharacteristic(O2RingProtocol::NOTIFY_UUID);
+    writeChar  = svc->getCharacteristic(OxyIIProtocol::WRITE_UUID());
+    notifyChar = svc->getCharacteristic(OxyIIProtocol::NOTIFY_UUID());
     if (!writeChar || !notifyChar) {
         LOG_WARN("[O2Ring BLE] Characteristics not found");
         disconnect();
