@@ -11,7 +11,7 @@
 
 // Outcome of a sync run. Distinct values per state-machine step so the
 // dashboard / status card can pinpoint where the failure was.
-enum class OxyIIResult {
+enum class O2RingSyncResult {
     OK = 0,
     NO_DEVICE_FOUND      = 1,
     CONNECT_FAILED       = 2,
@@ -56,7 +56,7 @@ public:
                     const OxyIIConfig& config,
                     OnFileComplete onFileComplete);
 
-    OxyIIResult run();
+    O2RingSyncResult run();
 
     // Number of files successfully pulled in the most recent run() call.
     size_t lastSyncedCount() const { return _lastSyncedCount; }

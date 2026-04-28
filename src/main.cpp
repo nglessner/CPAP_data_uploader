@@ -25,7 +25,11 @@ bool g_heapRecoveryBoot = false;
 #endif
 
 #ifdef ENABLE_O2RING_SYNC
-#include "O2RingSync.h"
+#include "O2RingOxyIISync.h"
+#include "O2RingState.h"
+#ifdef ENABLE_SMB_UPLOAD
+#include "SMBUploader.h"
+#endif
 #include "Esp32BleClient.h"
 #endif
 
@@ -826,32 +830,81 @@ void handleMonitoring() {
 }
 
 #ifdef ENABLE_O2RING_SYNC
+// Handoff for each pulled file: SMB-upload it under
+// /<O2RingPath>/<deviceSegment>/<filename>.dat. Returns true on success;
+// orchestrator only marks the filename as synced when this returns true.
+static bool uploadO2RingFile(const String& filename, const uint8_t* data, size_t len) {
+#ifdef ENABLE_SMB_UPLOAD
+    SMBUploader smb(config.getEndpoint(),
+                    config.getEndpointUser(),
+                    config.getEndpointPassword());
+    if (!smb.begin()) {
+        LOG_ERROR("[OxyII FSM] SMB connect failed");
+        return false;
+    }
+    String dir = "/" + config.getO2RingPath() + "/" + config.getDeviceSegment();
+    smb.createDirectory(dir);
+    String remotePath = dir + "/" + filename + ".dat";
+    bool uploaded = smb.uploadRawBuffer(remotePath, data, len);
+    smb.end();
+    if (!uploaded) {
+        LOG_ERROR("[OxyII FSM] SMB upload failed");
+        return false;
+    }
+    return true;
+#else
+    LOG_WARN("[OxyII FSM] No upload backend compiled in; discarding file");
+    return false;
+#endif
+}
+
 void handleO2RingSync() {
-    LOGF("[FSM] O2Ring sync starting (device: %s, scan: %ds)",
+    LOGF("[FSM] OxyII sync starting (device: %s, scan: %ds)",
          config.getO2RingDeviceName().c_str(), config.getO2RingScanSeconds());
 
     Esp32BleClient bleClient;
-    O2RingSync sync(&config, &bleClient);
+    O2RingState state;
+    state.load();
+
+    OxyIIConfig syncCfg;
+    syncCfg.deviceNamePrefix = config.getO2RingDeviceName();
+    syncCfg.scanSeconds = config.getO2RingScanSeconds();
+    syncCfg.mtu = 247;
+    syncCfg.cmdTimeoutMs = 5000;
+
+    O2RingOxyIISync sync(bleClient, state, syncCfg, uploadO2RingFile);
     O2RingSyncResult result = sync.run();
 
     switch (result) {
         case O2RingSyncResult::OK:
-            LOG("[FSM] O2Ring sync complete");
+            LOGF("[FSM] OxyII sync complete (%u file(s))", (unsigned)sync.lastSyncedCount());
             break;
-        case O2RingSyncResult::NOTHING_TO_SYNC:
-            LOG("[FSM] O2Ring sync: nothing new");
-            break;
-        case O2RingSyncResult::DEVICE_NOT_FOUND:
-            LOG_WARN("[FSM] O2Ring sync: device not found (ring not in range?)");
-            break;
-        case O2RingSyncResult::SMB_ERROR:
-            LOG_WARN("[FSM] O2Ring sync: SMB upload failed");
-            break;
-        case O2RingSyncResult::BLE_ERROR:
-            LOG_WARN("[FSM] O2Ring sync: BLE error");
+        case O2RingSyncResult::NO_DEVICE_FOUND:
+            LOG_WARN("[FSM] OxyII sync: device not found (ring not in range?)");
             break;
         case O2RingSyncResult::CONNECT_FAILED:
-            LOG_WARN("[FSM] O2Ring sync: device found but GATT connect failed");
+            LOG_WARN("[FSM] OxyII sync: device found but GATT connect failed");
+            break;
+        case O2RingSyncResult::MTU_FAILED:
+            LOG_WARN("[FSM] OxyII sync: MTU negotiation failed");
+            break;
+        case O2RingSyncResult::SUBSCRIBE_FAILED:
+            LOG_WARN("[FSM] OxyII sync: notify subscribe failed");
+            break;
+        case O2RingSyncResult::AUTH_FAILED:
+            LOG_WARN("[FSM] OxyII sync: AUTH (0xFF) failed");
+            break;
+        case O2RingSyncResult::HANDSHAKE_FAILED:
+            LOG_WARN("[FSM] OxyII sync: handshake failed");
+            break;
+        case O2RingSyncResult::GET_INFO_FAILED:
+            LOG_WARN("[FSM] OxyII sync: GET_INFO failed");
+            break;
+        case O2RingSyncResult::FILE_LIST_FAILED:
+            LOG_WARN("[FSM] OxyII sync: GET_FILE_LIST failed");
+            break;
+        case O2RingSyncResult::FILE_TRANSFER_FAILED:
+            LOG_WARN("[FSM] OxyII sync: file transfer failed");
             break;
     }
 

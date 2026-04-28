@@ -5,7 +5,6 @@
 
 #include "IBleClient.h"
 #include <NimBLEDevice.h>
-#include "O2RingProtocol.h"
 
 // Backed by NimBLE-Arduino. The original implementation used Bluedroid
 // (arduino-esp32's built-in BLE), but `BLEDevice::init()` aborted inside

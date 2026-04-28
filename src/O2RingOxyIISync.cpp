@@ -171,7 +171,7 @@ bool O2RingOxyIISync::pullFile(const String& filename) {
     return true;
 }
 
-OxyIIResult O2RingOxyIISync::run() {
+O2RingSyncResult O2RingOxyIISync::run() {
     LOG("[OxyII] Starting sync");
     _seq = 0;
     _sessionKeyDerived = false;
@@ -181,16 +181,16 @@ OxyIIResult O2RingOxyIISync::run() {
     if (!_ble.connect(_config.deviceNamePrefix, _config.scanSeconds)) {
         if (_ble.wasDeviceFound()) {
             LOG_WARN("[OxyII] Device found but connection failed");
-            return OxyIIResult::CONNECT_FAILED;
+            return O2RingSyncResult::CONNECT_FAILED;
         }
         LOG_WARN("[OxyII] Device not found");
-        return OxyIIResult::NO_DEVICE_FOUND;
+        return O2RingSyncResult::NO_DEVICE_FOUND;
     }
 
     if (!_ble.requestMtu(_config.mtu)) {
         LOG_ERRORF("[OxyII] MTU negotiation failed (wanted %u)", _config.mtu);
         _ble.disconnect();
-        return OxyIIResult::MTU_FAILED;
+        return O2RingSyncResult::MTU_FAILED;
     }
 
     // Derive session key tentatively from a placeholder serial; we'll re-
@@ -203,7 +203,7 @@ OxyIIResult O2RingOxyIISync::run() {
                                           _sessionKey)) {
         LOG_ERROR("[OxyII] initial session-key derivation failed");
         _ble.disconnect();
-        return OxyIIResult::AUTH_FAILED;
+        return O2RingSyncResult::AUTH_FAILED;
     }
     _sessionKeyDerived = true;
 
@@ -216,7 +216,7 @@ OxyIIResult O2RingOxyIISync::run() {
         if (!sendEncryptedCommand(OxyIIProtocol::OP_AUTH, authPayload, sizeof(authPayload),
                                    reply, sizeof(reply), replyLen)) {
             _ble.disconnect();
-            return OxyIIResult::AUTH_FAILED;
+            return O2RingSyncResult::AUTH_FAILED;
         }
     }
 
@@ -226,7 +226,7 @@ OxyIIResult O2RingOxyIISync::run() {
         if (!sendCommand(OxyIIProtocol::OP_KEEPALIVE, kp, sizeof(kp),
                          reply, sizeof(reply), replyLen)) {
             _ble.disconnect();
-            return OxyIIResult::HANDSHAKE_FAILED;
+            return O2RingSyncResult::HANDSHAKE_FAILED;
         }
     }
 
@@ -250,20 +250,20 @@ OxyIIResult O2RingOxyIISync::run() {
     if (!sendCommand(OxyIIProtocol::OP_HANDSHAKE, nullptr, 0,
                      reply, sizeof(reply), replyLen)) {
         _ble.disconnect();
-        return OxyIIResult::HANDSHAKE_FAILED;
+        return O2RingSyncResult::HANDSHAKE_FAILED;
     }
 
     // 0xE1 GET_INFO — extract serial for session-key re-derivation
     if (!sendCommand(OxyIIProtocol::OP_GET_INFO, nullptr, 0,
                      reply, sizeof(reply), replyLen)) {
         _ble.disconnect();
-        return OxyIIResult::GET_INFO_FAILED;
+        return O2RingSyncResult::GET_INFO_FAILED;
     }
     DeviceInfo info = OxyIIProtocol::parseGetInfoReply(reply, replyLen);
     if (!info.ok || info.serialNumber[0] == '\0') {
         LOG_ERROR("[OxyII] GET_INFO returned no serial");
         _ble.disconnect();
-        return OxyIIResult::GET_INFO_FAILED;
+        return O2RingSyncResult::GET_INFO_FAILED;
     }
     LOGF("[OxyII] sn=%s fw=%s", info.serialNumber, info.firmwareVersion);
 
@@ -274,14 +274,14 @@ OxyIIResult O2RingOxyIISync::run() {
                                           _sessionKey)) {
         LOG_ERROR("[OxyII] session-key re-derivation failed");
         _ble.disconnect();
-        return OxyIIResult::GET_INFO_FAILED;
+        return O2RingSyncResult::GET_INFO_FAILED;
     }
 
     // 0xF1 GET_FILE_LIST
     if (!sendCommand(OxyIIProtocol::OP_GET_FILE_LIST, nullptr, 0,
                      reply, sizeof(reply), replyLen)) {
         _ble.disconnect();
-        return OxyIIResult::FILE_LIST_FAILED;
+        return O2RingSyncResult::FILE_LIST_FAILED;
     }
 
     std::vector<String> deviceFiles;
@@ -318,5 +318,5 @@ OxyIIResult O2RingOxyIISync::run() {
 
     _ble.disconnect();
 
-    return anyFailed ? OxyIIResult::FILE_TRANSFER_FAILED : OxyIIResult::OK;
+    return anyFailed ? O2RingSyncResult::FILE_TRANSFER_FAILED : O2RingSyncResult::OK;
 }
