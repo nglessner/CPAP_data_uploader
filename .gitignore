@@ -34,3 +34,6 @@ backups/
 # hardware / BLE / coex issues. Kept out of VCS per session; see #133 for
 # the NimBLE + WiFi coex probe methodology if you need to reproduce.
 tools/
+
+# Git worktrees for parallel branch work
+.worktrees/
