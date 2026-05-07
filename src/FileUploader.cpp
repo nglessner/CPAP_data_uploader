@@ -1,6 +1,8 @@
 #include "FileUploader.h"
 #include "Logger.h"
+#include "NtpSidecarWriter.h"
 #include "WebStatus.h"
+#include "version.h"
 #include <SD_MMC.h>
 #include <functional>
 #include <time.h>
@@ -8,6 +10,14 @@
 #ifdef ENABLE_WEBSERVER
 #include "CpapWebServer.h"
 #endif
+
+namespace {
+bool smbSinkFn(void* ctx, const String& remotePath,
+               const uint8_t* data, size_t len) {
+    auto* up = static_cast<SMBUploader*>(ctx);
+    return up->uploadRawBuffer(remotePath, data, len);
+}
+}  // namespace
 
 // Constructor
 FileUploader::FileUploader(Config* cfg, WiFiManager* wifi) 
@@ -1073,6 +1083,30 @@ bool FileUploader::uploadSingleFileSmb(SDCardManager* sdManager, const String& f
 
     LOGF("[FileUploader] Uploading single file: %s", filePath.c_str());
 
+    // ── NTP sidecar: capture witness BEFORE the upload starts ──
+    bool wantSidecar = NtpSidecarWriter::isDatalogEdf(filePath);
+    SidecarPayload sidecar{};
+    if (wantSidecar) {
+        sidecar = NtpSidecarWriter::captureWitness(
+            sd, filePath,
+            config ? config->getInactivitySeconds() : 0,
+            FIRMWARE_VERSION);
+        if (!sidecar.valid) {
+            switch (sidecar.skipReason) {
+                case SkipReason::NTP_UNSYNCED:
+                    LOG_WARNF("[NtpSidecar] Skipping %s — clock not NTP-synced",
+                              filePath.c_str());
+                    break;
+                case SkipReason::EDF_PARSE_FAILED:
+                    LOG_WARNF("[NtpSidecar] Skipping %s — EDF header unparseable",
+                              filePath.c_str());
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
     if (!smbUploader->isConnected() && !smbUploader->begin()) {
         LOG_ERROR("[FileUploader] [SMB] Connection failed");
         return false;
@@ -1081,6 +1115,15 @@ bool FileUploader::uploadSingleFileSmb(SDCardManager* sdManager, const String& f
     if (!smbUploader->upload(filePath, filePath, sd, smbBytes)) {
         LOG_ERRORF("[FileUploader] [SMB] Upload failed: %s", filePath.c_str());
         return false;
+    }
+    // ── NTP sidecar: write AFTER successful EDF upload ──
+    if (wantSidecar) {
+        if (!NtpSidecarWriter::write(smbSinkFn, smbUploader,
+                                     filePath, sidecar)) {
+            LOG_ERRORF("[NtpSidecar] Failed to write sidecar for %s",
+                       filePath.c_str());
+            return false;
+        }
     }
     String checksum = smbStateManager->calculateChecksum(sd, filePath);
     if (!checksum.isEmpty()) smbStateManager->markFileUploaded(filePath, checksum, fileSize);
