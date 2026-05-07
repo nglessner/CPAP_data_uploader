@@ -7,6 +7,7 @@
 #include <map>
 #include <vector>
 #include <cstring>
+#include <ctime>
 
 // Mock String class for testing (mimics Arduino String)
 class String {
@@ -181,7 +182,8 @@ private:
     };
     
     std::map<std::string, FileData> files;
-    
+    std::map<std::string, time_t> mtimes;
+
 public:
     MockFS() {}
     
@@ -291,6 +293,18 @@ public:
     // Clear all files (for test cleanup)
     void clear() {
         files.clear();
+        mtimes.clear();
+    }
+
+    // Set the last-write timestamp for a path (FAT mtime semantics)
+    void setLastWrite(const String& path, time_t t) {
+        mtimes[path.toStdString()] = t;
+    }
+
+    // Get the last-write timestamp for a path (returns 0 if unset)
+    time_t getLastWrite(const String& path) const {
+        auto it = mtimes.find(path.toStdString());
+        return it == mtimes.end() ? (time_t)0 : it->second;
     }
     
     // Internal method to set file content (used by MockFile)
@@ -349,7 +363,11 @@ public:
     bool isDir() {
         return isDirectory;
     }
-    
+
+    time_t getLastWrite() const {
+        return fs ? fs->getLastWrite(path) : (time_t)0;
+    }
+
     String name() {
         size_t lastSlash = path.toStdString().find_last_of('/');
         if (lastSlash != std::string::npos) {
