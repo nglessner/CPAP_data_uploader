@@ -7,6 +7,14 @@
 
 namespace {
 
+void formatIsoUtcZ(time_t t, char out[21]) {
+    struct tm tmv;
+    gmtime_r(&t, &tmv);
+    snprintf(out, 21, "%04d-%02d-%02dT%02d:%02d:%02dZ",
+             tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
+             tmv.tm_hour, tmv.tm_min, tmv.tm_sec);
+}
+
 // Parse exactly nDigits ASCII decimal digits. Returns false if any non-digit.
 bool parseUInt(const char* p, size_t nDigits, int& out) {
     int v = 0;
@@ -152,4 +160,44 @@ bool NtpSidecarWriter::parseEdfHeader(fs::File& f, EdfHeader& out)
 bool NtpSidecarWriter::isNtpSynced(time_t now) {
     static const time_t kEpoch2024Utc = 1704067200;  // 2024-01-01T00:00:00Z
     return now >= kEpoch2024Utc;
+}
+
+size_t NtpSidecarWriter::serializeJson(const SidecarPayload& p,
+                                       char* buf, size_t cap) {
+    char ntpStr[21];
+    formatIsoUtcZ(p.ntp_observed_at_unix, ntpStr);
+
+    int written;
+    if (p.fat_mtime_unix != 0) {
+        char fatStr[21];
+        formatIsoUtcZ(p.fat_mtime_unix, fatStr);
+        written = snprintf(
+            buf, cap,
+            "{\"schema_version\":1,"
+            "\"ntp_observed_at\":\"%s\","
+            "\"fat_mtime\":\"%s\","
+            "\"edf_header_start\":\"%s\","
+            "\"edf_header_duration_seconds\":%d,"
+            "\"uploader_poll_interval_seconds\":%d,"
+            "\"uploader_firmware_version\":\"%s\"}",
+            ntpStr, fatStr, p.header.startNaiveStr,
+            p.header.durationSeconds, p.pollIntervalSeconds,
+            p.firmwareVersion ? p.firmwareVersion : "");
+    } else {
+        written = snprintf(
+            buf, cap,
+            "{\"schema_version\":1,"
+            "\"ntp_observed_at\":\"%s\","
+            "\"edf_header_start\":\"%s\","
+            "\"edf_header_duration_seconds\":%d,"
+            "\"uploader_poll_interval_seconds\":%d,"
+            "\"uploader_firmware_version\":\"%s\"}",
+            ntpStr, p.header.startNaiveStr,
+            p.header.durationSeconds, p.pollIntervalSeconds,
+            p.firmwareVersion ? p.firmwareVersion : "");
+    }
+
+    if (written < 0) return 0;
+    if (static_cast<size_t>(written) >= cap) return 0;
+    return static_cast<size_t>(written);
 }

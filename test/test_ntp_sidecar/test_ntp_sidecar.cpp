@@ -214,6 +214,66 @@ void test_isNtpSynced_modern_time_is_synced(void) {
     TEST_ASSERT_TRUE(NtpSidecarWriter::isNtpSynced(1778500000));
 }
 
+// ── serializeJson ───────────────────────────────────────────────────────
+
+namespace {
+SidecarPayload makeSamplePayload(time_t fatMtime = 1778117965) {
+    SidecarPayload p{};
+    p.valid = true;
+    p.skipReason = SkipReason::NONE;
+    p.ntp_observed_at_unix = 1778117967;  // 2026-05-07T01:39:27Z
+    p.fat_mtime_unix       = fatMtime;    // 2026-05-07T01:39:25Z
+    snprintf(p.header.startNaiveStr, sizeof(p.header.startNaiveStr),
+             "%s", "2026-05-06T22:29:52");
+    p.header.durationSeconds = 27300;
+    p.pollIntervalSeconds = 30;
+    p.firmwareVersion = "v1.4.2-dev+7";
+    return p;
+}
+}  // namespace
+
+void test_serializeJson_includes_all_fields(void) {
+    char buf[512] = {0};
+    auto p = makeSamplePayload();
+    size_t n = NtpSidecarWriter::serializeJson(p, buf, sizeof(buf));
+    TEST_ASSERT_GREATER_THAN(0, n);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"schema_version\":1"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"ntp_observed_at\":\"2026-05-07T01:39:27Z\""));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"fat_mtime\":\"2026-05-07T01:39:25Z\""));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"edf_header_start\":\"2026-05-06T22:29:52\""));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"edf_header_duration_seconds\":27300"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"uploader_poll_interval_seconds\":30"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"uploader_firmware_version\":\"v1.4.2-dev+7\""));
+}
+
+void test_serializeJson_omits_fat_mtime_when_zero(void) {
+    char buf[512] = {0};
+    auto p = makeSamplePayload(0);  // mtime unset
+    size_t n = NtpSidecarWriter::serializeJson(p, buf, sizeof(buf));
+    TEST_ASSERT_GREATER_THAN(0, n);
+    TEST_ASSERT_NULL(strstr(buf, "fat_mtime"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"ntp_observed_at\":\"2026-05-07T01:39:27Z\""));
+}
+
+void test_serializeJson_iso_utc_format(void) {
+    char buf[512] = {0};
+    auto p = makeSamplePayload();
+    NtpSidecarWriter::serializeJson(p, buf, sizeof(buf));
+    const char* ntp = strstr(buf, "\"ntp_observed_at\":\"");
+    TEST_ASSERT_NOT_NULL(ntp);
+    TEST_ASSERT_EQUAL_CHAR('Z', ntp[strlen("\"ntp_observed_at\":\"") + 19]);
+    const char* hdr = strstr(buf, "\"edf_header_start\":\"");
+    TEST_ASSERT_NOT_NULL(hdr);
+    TEST_ASSERT_EQUAL_CHAR('"', hdr[strlen("\"edf_header_start\":\"") + 19]);
+}
+
+void test_serializeJson_buffer_too_small_returns_zero(void) {
+    char small[16] = {0};
+    auto p = makeSamplePayload();
+    size_t n = NtpSidecarWriter::serializeJson(p, small, sizeof(small));
+    TEST_ASSERT_EQUAL_UINT(0, n);
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_isDatalogEdf_matches_session_pld);
@@ -240,5 +300,9 @@ int main(int argc, char** argv) {
     RUN_TEST(test_isNtpSynced_pre_2024_is_unsynced);
     RUN_TEST(test_isNtpSynced_2024_boundary_is_synced);
     RUN_TEST(test_isNtpSynced_modern_time_is_synced);
+    RUN_TEST(test_serializeJson_includes_all_fields);
+    RUN_TEST(test_serializeJson_omits_fat_mtime_when_zero);
+    RUN_TEST(test_serializeJson_iso_utc_format);
+    RUN_TEST(test_serializeJson_buffer_too_small_returns_zero);
     return UNITY_END();
 }

@@ -14,6 +14,22 @@ struct EdfHeader {
     int  durationSeconds;
 };
 
+enum class SkipReason {
+    NONE,
+    NTP_UNSYNCED,
+    EDF_PARSE_FAILED
+};
+
+struct SidecarPayload {
+    bool       valid;
+    SkipReason skipReason;
+    time_t     ntp_observed_at_unix;
+    time_t     fat_mtime_unix;          // 0 ⇒ omit field from JSON
+    EdfHeader  header;
+    int        pollIntervalSeconds;
+    const char* firmwareVersion;        // e.g. FIRMWARE_VERSION
+};
+
 class NtpSidecarWriter {
 public:
     static bool isDatalogEdf(const String& path);
@@ -30,6 +46,11 @@ public:
     // Returns true if `now` looks like a real NTP-synced time
     // (after 2024-01-01 00:00:00 UTC = 1704067200).
     static bool isNtpSynced(time_t now);
+
+    // Serializes the payload as compact JSON into `buf` (capacity `cap`).
+    // Returns the number of bytes written (excluding the null terminator),
+    // or 0 if the buffer is too small.
+    static size_t serializeJson(const SidecarPayload& p, char* buf, size_t cap);
 };
 
 #endif // NTP_SIDECAR_WRITER_H
