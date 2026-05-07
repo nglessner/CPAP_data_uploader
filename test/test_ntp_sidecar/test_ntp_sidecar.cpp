@@ -291,6 +291,58 @@ void test_mockfs_setlastwrite_round_trips(void) {
     TEST_ASSERT_EQUAL((time_t)1746603565, f.getLastWrite());
 }
 
+// ── captureWitness ──────────────────────────────────────────────────────
+
+void test_captureWitness_skips_when_ntp_unsynced(void) {
+    edfFS.clear();
+    edfFS.addFile(String("/DATALOG/20260507/x_PLD.edf"),
+                  makeEdfHeader("04.05.26", "22.29.52", "13650", "2"));
+    MockTimeState::setTime(0);  // unsynced
+    auto p = NtpSidecarWriter::captureWitness(
+        edfFS, String("/DATALOG/20260507/x_PLD.edf"), 30, "test-fw");
+    TEST_ASSERT_FALSE(p.valid);
+    TEST_ASSERT_TRUE(p.skipReason == SkipReason::NTP_UNSYNCED);
+}
+
+void test_captureWitness_skips_when_header_parse_fails(void) {
+    edfFS.clear();
+    edfFS.addFile(String("/DATALOG/20260507/x_PLD.edf"),
+                  std::vector<uint8_t>(100, 0));
+    MockTimeState::setTime((time_t)1746603567);  // synced
+    auto p = NtpSidecarWriter::captureWitness(
+        edfFS, String("/DATALOG/20260507/x_PLD.edf"), 30, "test-fw");
+    TEST_ASSERT_FALSE(p.valid);
+    TEST_ASSERT_TRUE(p.skipReason == SkipReason::EDF_PARSE_FAILED);
+}
+
+void test_captureWitness_skips_when_file_missing(void) {
+    edfFS.clear();
+    MockTimeState::setTime((time_t)1746603567);
+    auto p = NtpSidecarWriter::captureWitness(
+        edfFS, String("/DATALOG/20260507/missing.edf"), 30, "test-fw");
+    TEST_ASSERT_FALSE(p.valid);
+    TEST_ASSERT_TRUE(p.skipReason == SkipReason::EDF_PARSE_FAILED);
+}
+
+void test_captureWitness_full_path(void) {
+    edfFS.clear();
+    edfFS.addFile(String("/DATALOG/20260507/x_PLD.edf"),
+                  makeEdfHeader("04.05.26", "22.29.52", "13650", "2"));
+    edfFS.setLastWrite(String("/DATALOG/20260507/x_PLD.edf"),
+                       (time_t)1746603565);
+    MockTimeState::setTime((time_t)1746603567);
+    auto p = NtpSidecarWriter::captureWitness(
+        edfFS, String("/DATALOG/20260507/x_PLD.edf"), 30, "test-fw");
+    TEST_ASSERT_TRUE(p.valid);
+    TEST_ASSERT_TRUE(p.skipReason == SkipReason::NONE);
+    TEST_ASSERT_EQUAL((time_t)1746603567, p.ntp_observed_at_unix);
+    TEST_ASSERT_EQUAL((time_t)1746603565, p.fat_mtime_unix);
+    TEST_ASSERT_EQUAL_STRING("2026-05-04T22:29:52", p.header.startNaiveStr);
+    TEST_ASSERT_EQUAL_INT(27300, p.header.durationSeconds);
+    TEST_ASSERT_EQUAL_INT(30, p.pollIntervalSeconds);
+    TEST_ASSERT_EQUAL_STRING("test-fw", p.firmwareVersion);
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_isDatalogEdf_matches_session_pld);
@@ -323,5 +375,9 @@ int main(int argc, char** argv) {
     RUN_TEST(test_serializeJson_buffer_too_small_returns_zero);
     RUN_TEST(test_mockfs_getlastwrite_default_zero);
     RUN_TEST(test_mockfs_setlastwrite_round_trips);
+    RUN_TEST(test_captureWitness_skips_when_ntp_unsynced);
+    RUN_TEST(test_captureWitness_skips_when_header_parse_fails);
+    RUN_TEST(test_captureWitness_skips_when_file_missing);
+    RUN_TEST(test_captureWitness_full_path);
     return UNITY_END();
 }

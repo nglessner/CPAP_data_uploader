@@ -201,3 +201,47 @@ size_t NtpSidecarWriter::serializeJson(const SidecarPayload& p,
     if (static_cast<size_t>(written) >= cap) return 0;
     return static_cast<size_t>(written);
 }
+
+#ifdef UNIT_TEST
+SidecarPayload NtpSidecarWriter::captureWitness(
+    MockFS& fs, const String& localPath,
+    int pollIntervalSeconds, const char* firmwareVersion)
+#else
+SidecarPayload NtpSidecarWriter::captureWitness(
+    fs::FS& fs, const String& localPath,
+    int pollIntervalSeconds, const char* firmwareVersion)
+#endif
+{
+    SidecarPayload p{};
+    p.valid = false;
+    p.pollIntervalSeconds = pollIntervalSeconds;
+    p.firmwareVersion = firmwareVersion;
+
+    time_t now = time(nullptr);
+    if (!isNtpSynced(now)) {
+        p.skipReason = SkipReason::NTP_UNSYNCED;
+        return p;
+    }
+    p.ntp_observed_at_unix = now;
+
+#ifdef UNIT_TEST
+    MockFile f = fs.open(localPath);
+#else
+    fs::File f = fs.open(localPath);
+#endif
+    if (!f) {
+        p.skipReason = SkipReason::EDF_PARSE_FAILED;
+        return p;
+    }
+
+    p.fat_mtime_unix = f.getLastWrite();
+
+    if (!parseEdfHeader(f, p.header)) {
+        p.skipReason = SkipReason::EDF_PARSE_FAILED;
+        return p;
+    }
+
+    p.valid = true;
+    p.skipReason = SkipReason::NONE;
+    return p;
+}

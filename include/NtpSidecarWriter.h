@@ -51,6 +51,21 @@ public:
     // Returns the number of bytes written (excluding the null terminator),
     // or 0 if the buffer is too small.
     static size_t serializeJson(const SidecarPayload& p, char* buf, size_t cap);
+
+    // Captures everything needed for a sidecar in one shot. Reads the EDF
+    // header from disk, snapshots the current time, reads FAT mtime.
+    // Returns a fully-populated SidecarPayload on success, or a
+    // skipReason-tagged invalid payload if NTP is unsynced or the EDF
+    // header is unparseable. Logs a warning via LOG()/LOGF() on skip paths.
+#ifdef UNIT_TEST
+    static SidecarPayload captureWitness(MockFS& fs, const String& localPath,
+                                         int pollIntervalSeconds,
+                                         const char* firmwareVersion);
+#else
+    static SidecarPayload captureWitness(fs::FS& fs, const String& localPath,
+                                         int pollIntervalSeconds,
+                                         const char* firmwareVersion);
+#endif
 };
 
 #endif // NTP_SIDECAR_WRITER_H
