@@ -3,6 +3,8 @@
 #include "MockTime.h"
 #include "MockFS.h"
 #include "MockLogger.h"
+#include <vector>
+#include <cstring>
 
 // Include mock implementations
 #include "../mocks/Arduino.cpp"
@@ -93,6 +95,104 @@ void test_isDatalogEdf_rejects_empty_filename(void) {
         String("/DATALOG/20260507/.edf")));
 }
 
+// ── parseEdfHeader ──────────────────────────────────────────────────────
+
+namespace {
+// Build a 256-byte EDF header buffer in-memory. Returns vector<uint8_t>
+// suitable for MockFS::addFile(path, content).
+std::vector<uint8_t> makeEdfHeader(const char* dateDdMmYy,
+                                   const char* timeHhMmSs,
+                                   const char* numRecords,
+                                   const char* recordDuration) {
+    std::vector<uint8_t> buf(256, ' ');  // ASCII spaces fill reserved fields
+    auto put = [&](size_t off, const char* s, size_t fieldLen) {
+        size_t slen = strlen(s);
+        size_t n = (slen < fieldLen) ? slen : fieldLen;
+        memcpy(buf.data() + off, s, n);
+        // pad remainder with spaces (already done by initialiser)
+    };
+    // version (offset 0, 8 bytes): "0       "
+    put(0, "0", 8);
+    // patient id, recording id, etc. left as spaces
+    put(168, dateDdMmYy, 8);
+    put(176, timeHhMmSs, 8);
+    put(236, numRecords, 8);
+    put(244, recordDuration, 8);
+    return buf;
+}
+}  // namespace
+
+MockFS edfFS;
+
+void test_parseEdfHeader_valid_full_pld(void) {
+    edfFS.clear();
+    auto buf = makeEdfHeader("04.05.26", "22.29.52", "13650", "2");
+    edfFS.addFile(String("/sample.edf"), buf);
+    MockFile f = edfFS.open(String("/sample.edf"));
+    EdfHeader out{};
+    TEST_ASSERT_TRUE(NtpSidecarWriter::parseEdfHeader(f, out));
+    TEST_ASSERT_EQUAL_STRING("2026-05-04T22:29:52", out.startNaiveStr);
+    TEST_ASSERT_EQUAL_INT(27300, out.durationSeconds);
+}
+
+void test_parseEdfHeader_short_read(void) {
+    edfFS.clear();
+    std::vector<uint8_t> tiny(100, ' ');
+    edfFS.addFile(String("/short.edf"), tiny);
+    MockFile f = edfFS.open(String("/short.edf"));
+    EdfHeader out{};
+    TEST_ASSERT_FALSE(NtpSidecarWriter::parseEdfHeader(f, out));
+}
+
+void test_parseEdfHeader_bad_date_format(void) {
+    edfFS.clear();
+    auto buf = makeEdfHeader("xx.yy.zz", "22.29.52", "100", "2");
+    edfFS.addFile(String("/bad.edf"), buf);
+    MockFile f = edfFS.open(String("/bad.edf"));
+    EdfHeader out{};
+    TEST_ASSERT_FALSE(NtpSidecarWriter::parseEdfHeader(f, out));
+}
+
+void test_parseEdfHeader_bad_time_format(void) {
+    edfFS.clear();
+    auto buf = makeEdfHeader("04.05.26", "ab.29.52", "100", "2");
+    edfFS.addFile(String("/badt.edf"), buf);
+    MockFile f = edfFS.open(String("/badt.edf"));
+    EdfHeader out{};
+    TEST_ASSERT_FALSE(NtpSidecarWriter::parseEdfHeader(f, out));
+}
+
+void test_parseEdfHeader_fractional_record_duration(void) {
+    edfFS.clear();
+    auto buf = makeEdfHeader("04.05.26", "22.29.52", "100", "2.5");
+    edfFS.addFile(String("/frac.edf"), buf);
+    MockFile f = edfFS.open(String("/frac.edf"));
+    EdfHeader out{};
+    TEST_ASSERT_TRUE(NtpSidecarWriter::parseEdfHeader(f, out));
+    TEST_ASSERT_EQUAL_INT(250, out.durationSeconds);
+}
+
+void test_parseEdfHeader_zero_records(void) {
+    edfFS.clear();
+    auto buf = makeEdfHeader("04.05.26", "22.29.52", "0", "2");
+    edfFS.addFile(String("/zero.edf"), buf);
+    MockFile f = edfFS.open(String("/zero.edf"));
+    EdfHeader out{};
+    TEST_ASSERT_TRUE(NtpSidecarWriter::parseEdfHeader(f, out));
+    TEST_ASSERT_EQUAL_INT(0, out.durationSeconds);
+}
+
+void test_parseEdfHeader_negative_records_treated_as_invalid(void) {
+    // EDF allows num_records="-1" (unknown). We treat that as invalid for
+    // our purposes — without a known duration the sidecar is useless.
+    edfFS.clear();
+    auto buf = makeEdfHeader("04.05.26", "22.29.52", "-1", "2");
+    edfFS.addFile(String("/neg.edf"), buf);
+    MockFile f = edfFS.open(String("/neg.edf"));
+    EdfHeader out{};
+    TEST_ASSERT_FALSE(NtpSidecarWriter::parseEdfHeader(f, out));
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_isDatalogEdf_matches_session_pld);
@@ -108,5 +208,12 @@ int main(int argc, char** argv) {
     RUN_TEST(test_isDatalogEdf_rejects_extra_path_segments);
     RUN_TEST(test_isDatalogEdf_rejects_non_edf_extension);
     RUN_TEST(test_isDatalogEdf_rejects_empty_filename);
+    RUN_TEST(test_parseEdfHeader_valid_full_pld);
+    RUN_TEST(test_parseEdfHeader_short_read);
+    RUN_TEST(test_parseEdfHeader_bad_date_format);
+    RUN_TEST(test_parseEdfHeader_bad_time_format);
+    RUN_TEST(test_parseEdfHeader_fractional_record_duration);
+    RUN_TEST(test_parseEdfHeader_zero_records);
+    RUN_TEST(test_parseEdfHeader_negative_records_treated_as_invalid);
     return UNITY_END();
 }
