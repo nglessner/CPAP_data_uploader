@@ -1006,6 +1006,30 @@ bool FileUploader::uploadDatalogFolderSmb(SDCardManager* sdManager, const String
 
         LOGF("[FileUploader] Uploading file: %s (%lu bytes)", fileName.c_str(), fileSize);
 
+        // ── NTP sidecar: capture witness BEFORE the upload starts ──
+        bool wantSidecar = NtpSidecarWriter::isDatalogEdf(localPath);
+        SidecarPayload sidecar{};
+        if (wantSidecar) {
+            sidecar = NtpSidecarWriter::captureWitness(
+                sd, localPath,
+                config ? config->getInactivitySeconds() : 0,
+                FIRMWARE_VERSION);
+            if (!sidecar.valid) {
+                switch (sidecar.skipReason) {
+                    case SkipReason::NTP_UNSYNCED:
+                        LOG_WARNF("[NtpSidecar] Skipping %s — clock not NTP-synced",
+                                  localPath.c_str());
+                        break;
+                    case SkipReason::EDF_PARSE_FAILED:
+                        LOG_WARNF("[NtpSidecar] Skipping %s — EDF header unparseable",
+                                  localPath.c_str());
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
         if (!smbUploader->isConnected()) {
             if (!smbUploader->begin()) {
                 LOG_ERROR("[FileUploader] [SMB] Failed to connect");
@@ -1020,6 +1044,18 @@ bool FileUploader::uploadDatalogFolderSmb(SDCardManager* sdManager, const String
             smbStateManager->save(sd);
             return false;
         }
+
+        // ── NTP sidecar: write AFTER successful EDF upload ──
+        if (wantSidecar) {
+            if (!NtpSidecarWriter::write(smbSinkFn, smbUploader,
+                                         localPath, sidecar)) {
+                LOG_ERRORF("[NtpSidecar] Failed to write sidecar for %s",
+                           localPath.c_str());
+                smbStateManager->save(sd);
+                return false;
+            }
+        }
+
         if (isRecent) smbStateManager->markFileUploaded(localPath, "", fileSize);
         uploadedCount++;
         g_smbSessionStatus.filesUploaded = uploadedCount;
