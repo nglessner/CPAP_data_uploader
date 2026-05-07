@@ -148,3 +148,8 @@ bool NtpSidecarWriter::parseEdfHeader(fs::File& f, EdfHeader& out)
     out.durationSeconds = static_cast<int>(std::lround(total));
     return true;
 }
+
+bool NtpSidecarWriter::isNtpSynced(time_t now) {
+    static const time_t kEpoch2024Utc = 1704067200;  // 2024-01-01T00:00:00Z
+    return now >= kEpoch2024Utc;
+}

@@ -193,6 +193,27 @@ void test_parseEdfHeader_negative_records_treated_as_invalid(void) {
     TEST_ASSERT_FALSE(NtpSidecarWriter::parseEdfHeader(f, out));
 }
 
+// ── isNtpSynced ─────────────────────────────────────────────────────────
+
+void test_isNtpSynced_zero_is_unsynced(void) {
+    TEST_ASSERT_FALSE(NtpSidecarWriter::isNtpSynced(0));
+}
+
+void test_isNtpSynced_pre_2024_is_unsynced(void) {
+    // 2023-12-31 23:59:59 UTC = 1704067199
+    TEST_ASSERT_FALSE(NtpSidecarWriter::isNtpSynced(1704067199));
+}
+
+void test_isNtpSynced_2024_boundary_is_synced(void) {
+    // 2024-01-01 00:00:00 UTC = 1704067200
+    TEST_ASSERT_TRUE(NtpSidecarWriter::isNtpSynced(1704067200));
+}
+
+void test_isNtpSynced_modern_time_is_synced(void) {
+    // 2026-05-07 ≈ 1778500000
+    TEST_ASSERT_TRUE(NtpSidecarWriter::isNtpSynced(1778500000));
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_isDatalogEdf_matches_session_pld);
@@ -215,5 +236,9 @@ int main(int argc, char** argv) {
     RUN_TEST(test_parseEdfHeader_fractional_record_duration);
     RUN_TEST(test_parseEdfHeader_zero_records);
     RUN_TEST(test_parseEdfHeader_negative_records_treated_as_invalid);
+    RUN_TEST(test_isNtpSynced_zero_is_unsynced);
+    RUN_TEST(test_isNtpSynced_pre_2024_is_unsynced);
+    RUN_TEST(test_isNtpSynced_2024_boundary_is_synced);
+    RUN_TEST(test_isNtpSynced_modern_time_is_synced);
     return UNITY_END();
 }

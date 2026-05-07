@@ -26,6 +26,10 @@ public:
 #else
     static bool parseEdfHeader(fs::File& f, EdfHeader& out);
 #endif
+
+    // Returns true if `now` looks like a real NTP-synced time
+    // (after 2024-01-01 00:00:00 UTC = 1704067200).
+    static bool isNtpSynced(time_t now);
 };
 
 #endif // NTP_SIDECAR_WRITER_H
