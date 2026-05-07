@@ -274,6 +274,23 @@ void test_serializeJson_buffer_too_small_returns_zero(void) {
     TEST_ASSERT_EQUAL_UINT(0, n);
 }
 
+// ── MockFS extension sanity ────────────────────────────────────────────
+
+void test_mockfs_getlastwrite_default_zero(void) {
+    edfFS.clear();
+    edfFS.addFile(String("/x.edf"), std::vector<uint8_t>(256, 0));
+    MockFile f = edfFS.open(String("/x.edf"));
+    TEST_ASSERT_EQUAL((time_t)0, f.getLastWrite());
+}
+
+void test_mockfs_setlastwrite_round_trips(void) {
+    edfFS.clear();
+    edfFS.addFile(String("/y.edf"), std::vector<uint8_t>(256, 0));
+    edfFS.setLastWrite(String("/y.edf"), (time_t)1746603565);
+    MockFile f = edfFS.open(String("/y.edf"));
+    TEST_ASSERT_EQUAL((time_t)1746603565, f.getLastWrite());
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_isDatalogEdf_matches_session_pld);
@@ -304,5 +321,7 @@ int main(int argc, char** argv) {
     RUN_TEST(test_serializeJson_omits_fat_mtime_when_zero);
     RUN_TEST(test_serializeJson_iso_utc_format);
     RUN_TEST(test_serializeJson_buffer_too_small_returns_zero);
+    RUN_TEST(test_mockfs_getlastwrite_default_zero);
+    RUN_TEST(test_mockfs_setlastwrite_round_trips);
     return UNITY_END();
 }
