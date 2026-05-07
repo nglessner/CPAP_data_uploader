@@ -7,9 +7,6 @@
 // Include mock implementations
 #include "../mocks/Arduino.cpp"
 
-// Mock ArduinoJson (not used yet, but stays available for later)
-#include "../mocks/ArduinoJson.h"
-
 // Stub out FIRMWARE_VERSION before including NtpSidecarWriter
 #define FIRMWARE_VERSION "test-v0.0.0"
 
@@ -42,6 +39,16 @@ void test_isDatalogEdf_matches_session_eve(void) {
 void test_isDatalogEdf_matches_session_csl(void) {
     TEST_ASSERT_TRUE(NtpSidecarWriter::isDatalogEdf(
         String("/DATALOG/20260507/20260507_223015_CSL.edf")));
+}
+
+void test_isDatalogEdf_matches_session_sad(void) {
+    TEST_ASSERT_TRUE(NtpSidecarWriter::isDatalogEdf(
+        String("/DATALOG/20260507/20260507_223015_SAD.edf")));
+}
+
+void test_isDatalogEdf_matches_session_sa2(void) {
+    TEST_ASSERT_TRUE(NtpSidecarWriter::isDatalogEdf(
+        String("/DATALOG/20260507/20260507_223015_SA2.edf")));
 }
 
 void test_isDatalogEdf_case_insensitive_extension(void) {
@@ -92,6 +99,8 @@ int main(int argc, char** argv) {
     RUN_TEST(test_isDatalogEdf_matches_session_brp);
     RUN_TEST(test_isDatalogEdf_matches_session_eve);
     RUN_TEST(test_isDatalogEdf_matches_session_csl);
+    RUN_TEST(test_isDatalogEdf_matches_session_sad);
+    RUN_TEST(test_isDatalogEdf_matches_session_sa2);
     RUN_TEST(test_isDatalogEdf_case_insensitive_extension);
     RUN_TEST(test_isDatalogEdf_rejects_root_str);
     RUN_TEST(test_isDatalogEdf_rejects_state_files);
