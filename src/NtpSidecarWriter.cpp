@@ -245,3 +245,21 @@ SidecarPayload NtpSidecarWriter::captureWitness(
     p.skipReason = SkipReason::NONE;
     return p;
 }
+
+bool NtpSidecarWriter::write(SinkFn sink, void* sinkCtx,
+                             const String& edfRemotePath,
+                             const SidecarPayload& payload) {
+    if (!payload.valid) {
+        return true;
+    }
+
+    char buf[512];
+    size_t n = serializeJson(payload, buf, sizeof(buf));
+    if (n == 0) {
+        return false;
+    }
+
+    String sidecarPath = edfRemotePath + ".ntp.json";
+    return sink(sinkCtx, sidecarPath,
+                reinterpret_cast<const uint8_t*>(buf), n);
+}

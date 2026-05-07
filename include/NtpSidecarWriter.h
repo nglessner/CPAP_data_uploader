@@ -66,6 +66,19 @@ public:
                                          int pollIntervalSeconds,
                                          const char* firmwareVersion);
 #endif
+
+    // Sink callback signature. ctx is a caller-provided pointer (e.g.
+    // SMBUploader*). Returns true on successful write.
+    typedef bool (*SinkFn)(void* ctx, const String& remotePath,
+                           const uint8_t* data, size_t len);
+
+    // Writes the sidecar JSON to <edfRemotePath>.ntp.json via the sink.
+    // - If payload is invalid, returns true without invoking the sink.
+    // - If serialisation fails (buffer too small), returns false.
+    // - Otherwise returns the sink's return value.
+    static bool write(SinkFn sink, void* sinkCtx,
+                      const String& edfRemotePath,
+                      const SidecarPayload& payload);
 };
 
 #endif // NTP_SIDECAR_WRITER_H

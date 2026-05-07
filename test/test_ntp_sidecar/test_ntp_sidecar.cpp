@@ -343,6 +343,69 @@ void test_captureWitness_full_path(void) {
     TEST_ASSERT_EQUAL_STRING("test-fw", p.firmwareVersion);
 }
 
+// ── write ──────────────────────────────────────────────────────────────
+
+namespace {
+struct SinkCall {
+    String   path;
+    std::vector<uint8_t> data;
+    bool     called = false;
+    bool     returnValue = true;
+};
+
+bool recordingSink(void* ctx, const String& remotePath,
+                   const uint8_t* data, size_t len) {
+    auto* s = static_cast<SinkCall*>(ctx);
+    s->called = true;
+    s->path = remotePath;
+    s->data.assign(data, data + len);
+    return s->returnValue;
+}
+}  // namespace
+
+void test_write_invokes_sink_with_correct_path(void) {
+    SinkCall call;
+    auto p = makeSamplePayload();
+    bool ok = NtpSidecarWriter::write(recordingSink, &call,
+                                      String("/DATALOG/20260507/x_PLD.edf"),
+                                      p);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_TRUE(call.called);
+    TEST_ASSERT_EQUAL_STRING("/DATALOG/20260507/x_PLD.edf.ntp.json",
+                             call.path.c_str());
+}
+
+void test_write_payload_is_valid_json(void) {
+    SinkCall call;
+    auto p = makeSamplePayload();
+    NtpSidecarWriter::write(recordingSink, &call,
+                            String("/x.edf"), p);
+    TEST_ASSERT_GREATER_THAN(0u, call.data.size());
+    TEST_ASSERT_EQUAL_CHAR('{', (char)call.data.front());
+    TEST_ASSERT_EQUAL_CHAR('}', (char)call.data.back());
+}
+
+void test_write_skips_sink_when_payload_invalid(void) {
+    SinkCall call;
+    SidecarPayload p{};
+    p.valid = false;
+    p.skipReason = SkipReason::NTP_UNSYNCED;
+    bool ok = NtpSidecarWriter::write(recordingSink, &call,
+                                      String("/x.edf"), p);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_FALSE(call.called);
+}
+
+void test_write_returns_false_when_sink_fails(void) {
+    SinkCall call;
+    call.returnValue = false;
+    auto p = makeSamplePayload();
+    bool ok = NtpSidecarWriter::write(recordingSink, &call,
+                                      String("/x.edf"), p);
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_TRUE(call.called);
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_isDatalogEdf_matches_session_pld);
@@ -379,5 +442,9 @@ int main(int argc, char** argv) {
     RUN_TEST(test_captureWitness_skips_when_header_parse_fails);
     RUN_TEST(test_captureWitness_skips_when_file_missing);
     RUN_TEST(test_captureWitness_full_path);
+    RUN_TEST(test_write_invokes_sink_with_correct_path);
+    RUN_TEST(test_write_payload_is_valid_json);
+    RUN_TEST(test_write_skips_sink_when_payload_invalid);
+    RUN_TEST(test_write_returns_false_when_sink_fails);
     return UNITY_END();
 }
