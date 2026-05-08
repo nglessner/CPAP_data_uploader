@@ -259,6 +259,9 @@ void Config::setConfigValue(String key, String value) {
     } else if (key == "HA_WEBHOOK_TIMEOUT_MS") {
         int v = value.toInt();
         if (v >= 100 && v <= 30000) haWebhookTimeoutMs = v;
+    } else if (key == "O2RING_RETRY_WINDOW_MINUTES") {
+        int v = value.toInt();
+        if (v >= 0 && v <= 30) o2ringRetryWindowMinutes = v;
     } else if (key == "DEVICE_NAME") {
         deviceName = value;
     } else {
@@ -685,6 +688,9 @@ int Config::getO2RingScanSeconds() const { return o2ringScanSeconds; }
 // Home Assistant miss-cue webhook getters (Phase 2)
 const String& Config::getHaWebhookUrl() const { return haWebhookUrl; }
 int           Config::getHaWebhookTimeoutMs() const { return haWebhookTimeoutMs; }
+
+// O2Ring post-cooldown retry scan getter (Phase 3)
+int Config::getO2RingRetryWindowMinutes() const { return o2ringRetryWindowMinutes; }
 
 const String& Config::getDeviceName() const { return deviceName; }
 const String& Config::getDeviceSegment() const { return deviceSegment; }

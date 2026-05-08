@@ -85,6 +85,9 @@ private:
     String haWebhookUrl;
     int    haWebhookTimeoutMs = 3000;
 
+    // O2Ring post-cooldown retry scan (Phase 3)
+    int o2ringRetryWindowMinutes = 5;   // 0 disables retry
+
     // Device identity (used for SMB path disambiguation)
     String deviceName;     // Raw user-supplied value (may be empty)
     String deviceSegment;  // Computed once during loadFromSD
@@ -178,6 +181,9 @@ public:
     // Home Assistant miss-cue webhook (Phase 2)
     const String& getHaWebhookUrl() const;
     int getHaWebhookTimeoutMs() const;
+
+    // O2Ring post-cooldown retry scan (Phase 3)
+    int getO2RingRetryWindowMinutes() const;
 
     // Device identity getters
     const String& getDeviceName() const;
