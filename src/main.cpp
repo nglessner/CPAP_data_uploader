@@ -545,6 +545,13 @@ void handleListening() {
 
     if (trafficMonitor.isIdleFor(inactivityMs)) {
         LOGF("[FSM] %ds of bus silence confirmed", config.getInactivitySeconds());
+#ifdef ENABLE_O2RING_SYNC
+        if (config.isO2RingEnabled()) {
+            LOG("[FSM] O2Ring enabled — running ring sync before SD acquire");
+            transitionTo(UploadState::O2RING_SYNC);
+            return;
+        }
+#endif
         transitionTo(UploadState::ACQUIRING);
         return;
     }
