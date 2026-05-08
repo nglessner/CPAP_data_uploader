@@ -19,7 +19,8 @@ static void test_fsm_state_names_present(void) {
     TEST_ASSERT_EQUAL_STRING("COOLDOWN",    getStateName(UploadState::COOLDOWN));
     TEST_ASSERT_EQUAL_STRING("COMPLETE",    getStateName(UploadState::COMPLETE));
     TEST_ASSERT_EQUAL_STRING("MONITORING",  getStateName(UploadState::MONITORING));
-    TEST_ASSERT_EQUAL_STRING("O2RING_SYNC", getStateName(UploadState::O2RING_SYNC));
+    TEST_ASSERT_EQUAL_STRING("O2RING_SYNC",  getStateName(UploadState::O2RING_SYNC));
+    TEST_ASSERT_EQUAL_STRING("O2RING_RETRY", getStateName(UploadState::O2RING_RETRY));
 }
 
 static void test_fsm_unknown_returns_unknown(void) {
