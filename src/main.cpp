@@ -113,6 +113,10 @@ const unsigned long LOG_DUMP_INTERVAL_MS = 10 * 1000;  // 10 seconds
 // Gates [res fh= ma= fd=] heap suffix on all log lines and verbose pre-flight output.
 bool g_debugMode = false;
 
+// O2Ring retry state: set on a miss in handleO2RingSync when retry is
+// configured; cleared by handleO2RingRetry (or on success in primary sync).
+static bool g_o2ringRetryPending = false;
+
 #ifdef ENABLE_WEBSERVER
 // External trigger flags (defined in WebServer.cpp)
 extern volatile bool g_triggerUploadFlag;
@@ -783,8 +787,14 @@ void handleCooldown() {
     ScheduleManager* sm = uploader->getScheduleManager();
     
     if (sm->isSmartMode()) {
-        // Smart mode: ALWAYS return to LISTENING (continuous loop)
         trafficMonitor.resetIdleTracking();
+#ifdef ENABLE_O2RING_SYNC
+        if (g_o2ringRetryPending) {
+            LOG("[FSM] Smart mode — running O2Ring retry before LISTENING");
+            transitionTo(UploadState::O2RING_RETRY);
+            return;
+        }
+#endif
         LOG("[FSM] Smart mode — returning to LISTENING (continuous loop)");
         transitionTo(UploadState::LISTENING);
     } else {
@@ -989,18 +999,65 @@ void handleO2RingSync() {
             break;
     }
 
-    // Fire HA cue on miss. Empty URL == disabled; non-success non-fatal.
     if (result != O2RingSyncResult::OK) {
+        // Mark retry pending for handleCooldown to act on (gated on
+        // O2RING_RETRY_WINDOW_MINUTES > 0).
+        g_o2ringRetryPending = (config.getO2RingRetryWindowMinutes() > 0);
+
+        // Fire HA cue on miss. Empty URL == disabled; non-success non-fatal.
         HaWebhook hook(&haHttpClientSender());
         const String& devSeg = config.getDeviceSegment();
         uint32_t now = (uint32_t)(time(nullptr));
         hook.fire("ring_sync_miss", devSeg, now,
                   config.getHaWebhookUrl(),
                   config.getHaWebhookTimeoutMs());
+    } else {
+        g_o2ringRetryPending = false;
     }
 
     LOG("[FSM] OxyII sync done — proceeding to ACQUIRING for CPAP upload");
     transitionTo(UploadState::ACQUIRING);
+}
+
+void handleO2RingRetry() {
+    int retryMin = config.getO2RingRetryWindowMinutes();
+    if (retryMin <= 0) {
+        // Defensive — we shouldn't be here if disabled, but if the config
+        // changed mid-cycle, exit cleanly.
+        g_o2ringRetryPending = false;
+        transitionTo(UploadState::LISTENING);
+        return;
+    }
+    LOGF("[FSM] O2Ring retry window: scanning up to %d minute(s)", retryMin);
+
+    Esp32BleClient bleClient;
+    O2RingState state;
+    state.load();
+
+    OxyIIConfig syncCfg;
+    syncCfg.scanSeconds = retryMin * 60;
+    syncCfg.mtu = 247;
+    syncCfg.cmdTimeoutMs = 5000;
+
+    O2RingSMBStreamingSink sink;
+    O2RingOxyIISync retry(bleClient, state, syncCfg, sink);
+    O2RingSyncResult result = retry.run();
+
+    O2RingStatus statusRec;
+    statusRec.load();
+    if (result == O2RingSyncResult::OK) {
+        statusRec.record((int)result, (uint16_t)retry.lastSyncedCount(),
+                         retry.lastSyncedFilename());
+        LOGF("[FSM] O2Ring retry recovered (%u file(s))",
+             (unsigned)retry.lastSyncedCount());
+    } else {
+        statusRec.recordPreservingFilename((int)result);
+        LOG_WARN("[FSM] O2Ring retry: still no ring");
+    }
+    statusRec.save();
+
+    g_o2ringRetryPending = false;
+    transitionTo(UploadState::LISTENING);
 }
 #endif // ENABLE_O2RING_SYNC
 
@@ -1205,7 +1262,8 @@ void loop() {
         case UploadState::COMPLETE:   handleComplete();   break;
         case UploadState::MONITORING: handleMonitoring(); break;
 #ifdef ENABLE_O2RING_SYNC
-        case UploadState::O2RING_SYNC:  handleO2RingSync();  break;
+        case UploadState::O2RING_SYNC:   handleO2RingSync();   break;
+        case UploadState::O2RING_RETRY:  handleO2RingRetry();  break;
 #endif
     }
 }
