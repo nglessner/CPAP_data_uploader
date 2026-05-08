@@ -51,7 +51,7 @@ public:
     }
 };
 
-HttpClientSender& haHttpClientSender() {
+IHttpSender& haHttpClientSender() {
     static HttpClientSender s;
     return s;
 }

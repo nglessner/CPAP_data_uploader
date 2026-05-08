@@ -36,8 +36,9 @@ private:
 };
 
 #ifndef UNIT_TEST
-class HttpClientSender;
-HttpClientSender& haHttpClientSender();
+// Returns a singleton IHttpSender backed by HTTPClient.
+// Callers pass &haHttpClientSender() to HaWebhook(IHttpSender*).
+IHttpSender& haHttpClientSender();
 #endif
 
 #endif // HA_WEBHOOK_H
