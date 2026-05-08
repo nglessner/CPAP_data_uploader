@@ -996,8 +996,8 @@ void handleO2RingSync() {
             break;
     }
 
-    cooldownStartedAt = millis();
-    transitionTo(UploadState::COOLDOWN);
+    LOG("[FSM] OxyII sync done — proceeding to ACQUIRING for CPAP upload");
+    transitionTo(UploadState::ACQUIRING);
 }
 #endif // ENABLE_O2RING_SYNC
 
