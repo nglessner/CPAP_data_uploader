@@ -1017,6 +1017,54 @@ void test_config_ha_webhook_default_empty_url() {
     TEST_ASSERT_EQUAL(3000, config.getHaWebhookTimeoutMs());
 }
 
+// ============================================================================
+// O2RING_RETRY_WINDOW_MINUTES tests (Phase 3)
+// ============================================================================
+
+void test_config_o2ring_retry_window_parsed() {
+    mockSD.clear();
+    Preferences::clearAll();
+    std::string configContent =
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = //server/share\n"
+        "O2RING_RETRY_WINDOW_MINUTES = 10\n";
+    mockSD.addFile("/config.txt", configContent);
+
+    Config config;
+    config.loadFromSD(mockSD);
+    TEST_ASSERT_EQUAL(10, config.getO2RingRetryWindowMinutes());
+}
+
+void test_config_o2ring_retry_window_zero_disables() {
+    // Zero is valid — explicitly disables retry.
+    mockSD.clear();
+    Preferences::clearAll();
+    std::string configContent =
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = //server/share\n"
+        "O2RING_RETRY_WINDOW_MINUTES = 0\n";
+    mockSD.addFile("/config.txt", configContent);
+
+    Config config;
+    config.loadFromSD(mockSD);
+    TEST_ASSERT_EQUAL(0, config.getO2RingRetryWindowMinutes());
+}
+
+void test_config_o2ring_retry_window_clamped() {
+    // Out-of-range values silently rejected; default 5 preserved.
+    mockSD.clear();
+    Preferences::clearAll();
+    std::string configContent =
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = //server/share\n"
+        "O2RING_RETRY_WINDOW_MINUTES = 999\n";  // > 30, rejected
+    mockSD.addFile("/config.txt", configContent);
+
+    Config config;
+    config.loadFromSD(mockSD);
+    TEST_ASSERT_EQUAL(5, config.getO2RingRetryWindowMinutes());
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     
@@ -1071,6 +1119,11 @@ int main(int argc, char **argv) {
     RUN_TEST(test_config_ha_webhook_keys);
     RUN_TEST(test_config_ha_webhook_timeout_clamped);
     RUN_TEST(test_config_ha_webhook_default_empty_url);
+
+    // O2Ring post-cooldown retry scan tests (Phase 3)
+    RUN_TEST(test_config_o2ring_retry_window_parsed);
+    RUN_TEST(test_config_o2ring_retry_window_zero_disables);
+    RUN_TEST(test_config_o2ring_retry_window_clamped);
 
     UNITY_END();
     
