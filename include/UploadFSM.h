@@ -11,7 +11,8 @@ enum class UploadState {
     COOLDOWN,
     COMPLETE,
     MONITORING,
-    O2RING_SYNC
+    O2RING_SYNC,
+    O2RING_RETRY        // post-COOLDOWN low-duty retry on prior O2RING_SYNC miss
 };
 
 inline const char* getStateName(UploadState state) {
@@ -25,6 +26,7 @@ inline const char* getStateName(UploadState state) {
         case UploadState::COMPLETE: return "COMPLETE";
         case UploadState::MONITORING: return "MONITORING";
         case UploadState::O2RING_SYNC: return "O2RING_SYNC";
+        case UploadState::O2RING_RETRY: return "O2RING_RETRY";
         default: return "UNKNOWN";
     }
 }
