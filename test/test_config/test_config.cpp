@@ -966,6 +966,57 @@ void test_o2ring_scan_seconds_clamped() {
     TEST_ASSERT_EQUAL_INT(30, config.getO2RingScanSeconds());
 }
 
+void test_config_ha_webhook_keys() {
+    mockSD.clear();
+    Preferences::clearAll();
+    std::string configContent =
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = //server/share\n"
+        "HA_WEBHOOK_URL = http://ha.local:8123/api/webhook/ring_miss\n"
+        "HA_WEBHOOK_TIMEOUT_MS = 5000\n";
+    mockSD.addFile("/config.txt", configContent);
+
+    Config config;
+    bool loaded = config.loadFromSD(mockSD);
+
+    TEST_ASSERT_TRUE(loaded);
+    TEST_ASSERT_EQUAL_STRING(
+        "http://ha.local:8123/api/webhook/ring_miss",
+        config.getHaWebhookUrl().c_str());
+    TEST_ASSERT_EQUAL(5000, config.getHaWebhookTimeoutMs());
+}
+
+void test_config_ha_webhook_timeout_clamped() {
+    // Out-of-range timeout values must be silently rejected; default 3000
+    // preserved.
+    mockSD.clear();
+    Preferences::clearAll();
+    std::string configContent =
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = //server/share\n"
+        "HA_WEBHOOK_TIMEOUT_MS = 50\n";  // < 100, rejected
+    mockSD.addFile("/config.txt", configContent);
+
+    Config config;
+    config.loadFromSD(mockSD);
+    TEST_ASSERT_EQUAL(3000, config.getHaWebhookTimeoutMs());
+}
+
+void test_config_ha_webhook_default_empty_url() {
+    // No HA_WEBHOOK_URL line => url is empty (cue disabled by default).
+    mockSD.clear();
+    Preferences::clearAll();
+    std::string configContent =
+        "WIFI_SSID = TestNetwork\n"
+        "ENDPOINT = //server/share\n";
+    mockSD.addFile("/config.txt", configContent);
+
+    Config config;
+    config.loadFromSD(mockSD);
+    TEST_ASSERT_EQUAL_STRING("", config.getHaWebhookUrl().c_str());
+    TEST_ASSERT_EQUAL(3000, config.getHaWebhookTimeoutMs());
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     
@@ -1015,6 +1066,11 @@ int main(int argc, char **argv) {
     RUN_TEST(test_o2ring_defaults);
     RUN_TEST(test_o2ring_config_load);
     RUN_TEST(test_o2ring_scan_seconds_clamped);
+
+    // Home Assistant miss-cue webhook tests (Phase 2)
+    RUN_TEST(test_config_ha_webhook_keys);
+    RUN_TEST(test_config_ha_webhook_timeout_clamped);
+    RUN_TEST(test_config_ha_webhook_default_empty_url);
 
     UNITY_END();
     

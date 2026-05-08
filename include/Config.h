@@ -81,6 +81,10 @@ private:
     String o2ringPath;
     int o2ringScanSeconds;
 
+    // Home Assistant miss-cue webhook (Phase 2)
+    String haWebhookUrl;
+    int    haWebhookTimeoutMs = 3000;
+
     // Device identity (used for SMB path disambiguation)
     String deviceName;     // Raw user-supplied value (may be empty)
     String deviceSegment;  // Computed once during loadFromSD
@@ -170,6 +174,10 @@ public:
     const String& getO2RingDeviceName() const;
     const String& getO2RingPath() const;
     int getO2RingScanSeconds() const;
+
+    // Home Assistant miss-cue webhook (Phase 2)
+    const String& getHaWebhookUrl() const;
+    int getHaWebhookTimeoutMs() const;
 
     // Device identity getters
     const String& getDeviceName() const;
