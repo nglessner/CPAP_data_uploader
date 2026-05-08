@@ -28,6 +28,7 @@ bool g_heapRecoveryBoot = false;
 #include "O2RingOxyIISync.h"
 #include "O2RingState.h"
 #include "O2RingStatus.h"
+#include "HaWebhook.h"
 #ifdef ENABLE_SMB_UPLOAD
 #include "SMBUploader.h"
 #endif
@@ -997,6 +998,16 @@ void handleO2RingSync() {
         case O2RingSyncResult::FILE_TRANSFER_FAILED:
             LOG_WARN("[FSM] OxyII sync: file transfer failed");
             break;
+    }
+
+    // Fire HA cue on miss. Empty URL == disabled; non-success non-fatal.
+    if (result != O2RingSyncResult::OK) {
+        HaWebhook hook(&haHttpClientSender());
+        const String& devSeg = config.getDeviceSegment();
+        uint32_t now = (uint32_t)(time(nullptr));
+        hook.fire("ring_sync_miss", devSeg, now,
+                  config.getHaWebhookUrl(),
+                  config.getHaWebhookTimeoutMs());
     }
 
     LOG("[FSM] OxyII sync done — proceeding to ACQUIRING for CPAP upload");
