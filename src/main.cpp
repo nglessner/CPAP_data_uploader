@@ -760,14 +760,6 @@ void handleReleasing() {
         return;
     }
 
-#ifdef ENABLE_O2RING_SYNC
-    if (config.isO2RingEnabled()) {
-        LOG("[FSM] SD released — entering O2RING_SYNC before cooldown");
-        transitionTo(UploadState::O2RING_SYNC);
-        return;
-    }
-#endif
-
     // If nothing was uploaded, skip the reboot and go straight to cooldown.
     // This prevents an endless reboot cycle when all backends are already synced.
     if (g_nothingToUpload) {
