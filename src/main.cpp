@@ -550,13 +550,10 @@ void handleListening() {
 
     if (trafficMonitor.isIdleFor(inactivityMs)) {
         LOGF("[FSM] %ds of bus silence confirmed", config.getInactivitySeconds());
-#ifdef ENABLE_O2RING_SYNC
-        if (config.isO2RingEnabled()) {
-            LOG("[FSM] O2Ring enabled — running ring sync before SD acquire");
-            transitionTo(UploadState::O2RING_SYNC);
-            return;
-        }
-#endif
+        // Always go to ACQUIRING first. Successful acquire is the only
+        // authoritative "CPAP is idle" signal we have — the 62s silence
+        // window from LISTENING goes stale across a 30–90s ring sync.
+        // O2Ring sync (if enabled) runs only after the bus is locked.
         transitionTo(UploadState::ACQUIRING);
         return;
     }
