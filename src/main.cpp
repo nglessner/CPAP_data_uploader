@@ -1019,8 +1019,8 @@ void handleO2RingSync() {
         g_o2ringRetryPending = false;
     }
 
-    LOG("[FSM] OxyII sync done — proceeding to ACQUIRING for CPAP upload");
-    transitionTo(UploadState::ACQUIRING);
+    LOG("[FSM] OxyII sync done — proceeding to UPLOADING (bus already locked)");
+    transitionTo(UploadState::UPLOADING);
 }
 
 void handleO2RingRetry() {
