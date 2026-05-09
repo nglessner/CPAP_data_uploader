@@ -103,6 +103,7 @@ These settings are only active when firmware is built with `-DENABLE_O2RING_SYNC
 | `O2RING_DEVICE_NAME` | `T8520` | BLE advertised name prefix to scan for |
 | `O2RING_PATH` | `oximetry/raw` | Base subfolder within the configured SMB endpoint for `.vld` files. Final upload path is `<O2RING_PATH>/<DEVICE_NAME-or-MAC>/<file>.vld` — see `DEVICE_NAME` in section 1 |
 | `O2RING_SCAN_SECONDS` | `30` | BLE scan duration in seconds (1–120) |
+| `O2RING_RETRY_WINDOW_MINUTES` | `5` | Minutes of low-duty BLE scan to run after `COOLDOWN` when the primary `O2RING_SYNC` missed the ring. Lets a button-press on the ring (e.g. in response to an HA cue) be picked up on the retry. `0` disables the retry window. Range: 0–30. Smart mode only. |
 
 **Example:**
 
@@ -111,11 +112,32 @@ O2RING_ENABLED = true
 O2RING_DEVICE_NAME = T8520
 O2RING_PATH = oximetry/raw
 O2RING_SCAN_SECONDS = 30
+O2RING_RETRY_WINDOW_MINUTES = 5
 ```
 
 The default `T8520` matches modern Viatom O2Ring-S firmware (advertised as `T8520_<last4-mac>`). Older Viatom rings sometimes advertise as `O2Ring` or another vendor-specific prefix; if the firmware never finds your ring with the default, override via `O2RING_DEVICE_NAME = <prefix>` after confirming the actual advertised name with a BLE scanner (e.g. `bluetoothctl scan on`, the nRF Connect mobile app, etc.).
 
 The sync runs after each CPAP upload cycle, once the SD card has been released back to the CPAP machine. `.vld` session files are downloaded from the ring over BLE and written directly to the SMB share — no SD card access is required.
+
+---
+
+## 10. O2Ring Miss Cue (Home Assistant webhook)
+
+When the ring is not found during `O2RING_SYNC`, the firmware can fire an HTTP POST to a Home Assistant webhook so you can wire an automation — blink a bedside lamp, send a notification, etc. — to prompt a manual button-press on the ring before the retry window closes.
+
+These settings are only active when firmware is built with `-DENABLE_O2RING_SYNC`.
+
+| Key | Default | Description |
+|---|---|---|
+| `HA_WEBHOOK_URL` | *(empty)* | Full URL of the HA webhook trigger to POST when O2Ring auto-sync misses. Empty disables the cue entirely. Example: `http://homeassistant.local:8123/api/webhook/ring_sync_miss` |
+| `HA_WEBHOOK_TIMEOUT_MS` | `3000` | Per-POST timeout in milliseconds for the HA webhook. Range: 100–30000; values outside this range are silently rejected and the default is used. |
+
+**Example:**
+
+```ini
+HA_WEBHOOK_URL = http://homeassistant.local:8123/api/webhook/ring_sync_miss
+HA_WEBHOOK_TIMEOUT_MS = 3000
+```
 
 ---
 
