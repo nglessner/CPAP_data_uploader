@@ -514,7 +514,9 @@ void setup() {
 void handleIdle() {
     // IDLE is only used in scheduled mode.
     // Smart mode never enters IDLE — it uses the continuous loop:
-    // LISTENING → ACQUIRING → UPLOADING → RELEASING → COOLDOWN → LISTENING
+    //   LISTENING → ACQUIRING → [O2RING_SYNC] → UPLOADING → RELEASING → COOLDOWN → LISTENING
+    // O2RING_SYNC runs after ACQUIRING success when O2Ring is enabled,
+    // so the ring sync only happens when we hold the SD bus exclusively.
     
     unsigned long now = millis();
     if (now - lastIdleCheck < IDLE_CHECK_INTERVAL_MS) return;
