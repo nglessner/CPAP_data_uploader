@@ -24,8 +24,10 @@ Data is split into two categories with different scheduling rules:
 | **Fresh data** | DATALOG folders within last B days + root/SETTINGS files | **Anytime** (24/7), as long as bus is idle |
 | **Old data** | DATALOG folders older than B days | **Only within upload window** [START, END] |
 
-Smart mode operates as a **continuous loop**: LISTENING → ACQUIRING → UPLOADING →
-RELEASING → COOLDOWN → LISTENING. The FSM **never enters IDLE** in smart mode.
+Smart mode operates as a **continuous loop**: LISTENING → ACQUIRING → [O2RING_SYNC] →
+UPLOADING → RELEASING → COOLDOWN → LISTENING. (`O2RING_SYNC` is inserted between
+`ACQUIRING` and `UPLOADING` only when the ring sync feature is enabled and we
+successfully hold the SD bus.) The FSM **never enters IDLE** in smart mode.
 After every upload cycle (whether complete or timed out), the system cools down and
 returns to LISTENING to wait for bus inactivity before the next cycle. This ensures
 new data written by the CPAP between upload cycles is always discovered on the next
