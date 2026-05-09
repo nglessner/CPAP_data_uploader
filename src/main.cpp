@@ -572,6 +572,13 @@ void handleListening() {
 void handleAcquiring() {
     if (sdManager.takeControl()) {
         LOG("[FSM] SD card control acquired");
+#ifdef ENABLE_O2RING_SYNC
+        if (config.isO2RingEnabled()) {
+            LOG("[FSM] O2Ring enabled — running ring sync now that bus is locked");
+            transitionTo(UploadState::O2RING_SYNC);
+            return;
+        }
+#endif
         transitionTo(UploadState::UPLOADING);
     } else {
         LOG_WARN("[FSM] Failed to acquire SD card, releasing to cooldown");
