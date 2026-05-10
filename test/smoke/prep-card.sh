@@ -70,6 +70,15 @@ for v in "${required[@]}"; do
   [[ -n "${!v:-}" ]] || die "$ENV_FILE: $v is empty or unset"
 done
 
+echo "prep-card.sh: clearing any stale upload-state files ..."
+shopt -s nullglob
+removed=("$TARGET"/.upload_state.v2*)
+if (( ${#removed[@]} > 0 )); then
+  rm -f -- "${removed[@]}"
+  printf '  removed: %s\n' "${removed[@]##*/}"
+fi
+shopt -u nullglob
+
 echo "prep-card.sh: copying fixture into $TARGET ..."
 # -a preserves mode/timestamps; trailing /. copies contents not the dir itself.
 cp -a "$FIXTURE_DIR/." "$TARGET/"
