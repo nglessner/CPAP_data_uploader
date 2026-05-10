@@ -75,7 +75,11 @@ echo "prep-card.sh: copying fixture into $TARGET ..."
 cp -a "$FIXTURE_DIR/." "$TARGET/"
 
 echo "prep-card.sh: rendering config.txt ..."
-envsubst < "$TEMPLATE" > "$TARGET/config.txt"
+# Lock envsubst to the required-vars list so a template typo (e.g. ${WIFI_SSDI})
+# survives unsubstituted and is caught by the grep below, instead of silently
+# becoming an empty field.
+# shellcheck disable=SC2016  # '${%s}' is a printf format, not a shell expansion
+envsubst "$(printf '${%s} ' "${required[@]}")" < "$TEMPLATE" > "$TARGET/config.txt"
 
 # Refuse to leave any unsubstituted placeholders on the card.
 # shellcheck disable=SC2016
