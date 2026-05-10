@@ -56,4 +56,33 @@ if (( ${#UNEXPECTED[@]} > 0 )) && (( FORCE == 0 )); then
 fi
 
 echo "prep-card.sh: target OK: $TARGET"
-echo "prep-card.sh: (validation only — population steps land in later tasks)"
+
+# Load the env file.
+set -a
+# shellcheck source=/dev/null
+. "$ENV_FILE"
+set +a
+
+# Sanity-check that nothing in the template was left unset.
+required=(WIFI_SSID WIFI_PASSWORD HOSTNAME SMB_HOST SMB_SHARE \
+          SMB_USER SMB_PASS GMT_OFFSET_HOURS)
+for v in "${required[@]}"; do
+  [[ -n "${!v:-}" ]] || die "$ENV_FILE: $v is empty or unset"
+done
+
+echo "prep-card.sh: copying fixture into $TARGET ..."
+# -a preserves mode/timestamps; trailing /. copies contents not the dir itself.
+cp -a "$FIXTURE_DIR/." "$TARGET/"
+
+echo "prep-card.sh: rendering config.txt ..."
+envsubst < "$TEMPLATE" > "$TARGET/config.txt"
+
+# Refuse to leave any unsubstituted placeholders on the card.
+# shellcheck disable=SC2016
+if grep -F '${' "$TARGET/config.txt" >/dev/null; then
+  die "rendered config.txt still contains \${...} placeholders — check $ENV_FILE"
+fi
+
+echo "prep-card.sh: done."
+echo "  fixture files: $(find "$TARGET" -type f | wc -l)"
+echo "  config.txt:    $TARGET/config.txt"
