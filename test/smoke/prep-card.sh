@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # prep-card.sh — populate a microSD for the AS11 firmware smoke fixture.
 #
-# Usage: ./test/smoke/prep-card.sh <sd-mount-point>
+# Usage: ./test/smoke/prep-card.sh <sd-mount-point> [--force]
 #
 # The target must be a writable directory. The script refuses to write to a
 # directory that contains files unrelated to the fixture so the operator does
@@ -23,7 +23,7 @@ for arg in "$@"; do
   case "$arg" in
     --force) FORCE=1 ;;
     -h|--help)
-      sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     -*) die "unknown flag: $arg" ;;
