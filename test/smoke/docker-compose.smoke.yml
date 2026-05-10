@@ -1,0 +1,20 @@
+# Local SMB target for the AS11 smoke fixture.
+# Dev-only credentials — do not reuse outside this fixture.
+#
+# Bring up:  docker compose -f test/smoke/docker-compose.smoke.yml up -d
+# Tear down: docker compose -f test/smoke/docker-compose.smoke.yml down
+# Inspect:   ls test/smoke/.smb-share/cpap-smoke/
+
+services:
+  smoke-samba:
+    image: dperson/samba:latest
+    container_name: cpap-smoke-samba
+    network_mode: host
+    restart: unless-stopped
+    command: >
+      -u "smoke;smokepass"
+      -s "cpap-smoke;/share;yes;no;no;smoke"
+      -p
+      -W
+    volumes:
+      - ./.smb-share:/share
