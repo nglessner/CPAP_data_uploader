@@ -37,3 +37,7 @@ tools/
 
 # Git worktrees for parallel branch work
 .worktrees/
+
+# AS11 smoke fixture (test/smoke/)
+test/smoke/.env.smoke
+test/smoke/.smb-share/
