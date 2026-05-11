@@ -587,6 +587,14 @@ void uploadTaskFunction(void* pvParameters) {
 }
 
 static void runUploadBlocking(DataFilter filter) {
+#ifdef ENABLE_WEBSERVER
+    // Detach the uploader's handleClient() pump while we're running an
+    // SMB transfer on the loop core. Servicing a request mid-blocking-
+    // upload allocates against an already-fragmented heap inside
+    // WebServer/WiFiClient and can wedge the listener socket until
+    // reboot. We accept a dark web UI for the upload window in exchange.
+    uploader->setWebServer(nullptr);
+#endif
     int maxMinutes = config.getExclusiveAccessMinutes();
     UploadResult result = uploader->uploadWithExclusiveAccess(&sdManager, maxMinutes, filter);
     switch (result) {
@@ -607,6 +615,9 @@ static void runUploadBlocking(DataFilter filter) {
             transitionTo(UploadState::RELEASING);
             break;
     }
+#ifdef ENABLE_WEBSERVER
+    uploader->setWebServer(webServer);
+#endif
 }
 
 void handleUploading() {
