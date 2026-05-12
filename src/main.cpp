@@ -11,6 +11,7 @@
 #include "pins_config.h"
 #include "version.h"
 
+#include "CrashDiag.h"
 #include "TrafficMonitor.h"
 #include "UploadFSM.h"
 
@@ -137,6 +138,9 @@ void transitionTo(UploadState newState) {
     LOGF("[FSM] %s -> %s", getStateName(currentState), getStateName(newState));
     currentState = newState;
     stateEnteredAt = millis();
+    // Survive panic: stamp the new state so the next boot can see where we
+    // were when we died. Cheap single-blob NVS write — no SD bus touch.
+    CrashDiag::stamp((uint8_t)newState);
 }
 
 // ============================================================================
@@ -199,7 +203,25 @@ void setup() {
     // Log reset reason for power/stability diagnostics
     esp_reset_reason_t resetReason = esp_reset_reason();
     LOG_INFOF("Reset reason: %s", getResetReasonString(resetReason));
-    
+
+    // Persistent crash diagnostics. Reads previous boot's snapshot from NVS,
+    // logs how the previous boot died, and primes this boot's snapshot.
+    // NVS-only — safe to run before any SD bus access.
+    CrashDiag::begin(resetReason);
+
+    // Hardware backstop: if the main loop wedges for more than this many
+    // seconds, panic-reset and let the next boot recover. Timeout is set
+    // well above any legitimate single-iteration time (blocking SMB upload
+    // is capped at EXCLUSIVE_ACCESS_MINUTES, max 30) so this only fires on
+    // a real wedge. esp_task_wdt_init() also reconfigures the IDLE task
+    // subscription that arduino-esp32 sets up at boot.
+    const uint32_t MAIN_LOOP_WDT_SECONDS = 45UL * 60UL;
+    esp_err_t wdtErr = esp_task_wdt_init(MAIN_LOOP_WDT_SECONDS, /*panic=*/true);
+    if (wdtErr != ESP_OK) {
+        LOG_WARNF("esp_task_wdt_init returned 0x%x — main-loop watchdog may not be armed",
+                  (unsigned)wdtErr);
+    }
+
     // Check for power-related issues
     if (resetReason == ESP_RST_BROWNOUT) {
         LOG_ERROR("WARNING: System reset due to brown-out (insufficient power supply), this could be caused by:");
@@ -226,10 +248,19 @@ void setup() {
     g_heapRecoveryBoot = (esp_reset_reason() == ESP_RST_SW);
     bool fastBoot = g_heapRecoveryBoot;
 
-    // Smart Wait constants — same values for both cold and soft-reboot.
-    // 5 s of continuous SD bus silence required; give up after 45 s max.
-    const unsigned long SMART_WAIT_MAX_MS      = 45000;
-    const unsigned long SMART_WAIT_REQUIRED_MS =  5000;
+    // Smart Wait constants. Normal boot: 5 s of bus silence required, give up
+    // after 45 s. Panic boot (previous boot died as PANIC/WDT/BROWNOUT): we
+    // may be coming back online mid-night with the AS11 actively writing — a
+    // single bus theft will fatal the night's DATALOG. Extend to 60 s of
+    // continuous silence required and a 10 min wait, then proceed anyway
+    // (we have no recovery path that doesn't touch the bus eventually).
+    const bool panicBoot = CrashDiag::wasAbnormalReset();
+    const unsigned long SMART_WAIT_MAX_MS      = panicBoot ? (10UL * 60UL * 1000UL) : 45000UL;
+    const unsigned long SMART_WAIT_REQUIRED_MS = panicBoot ? 60000UL : 5000UL;
+    if (panicBoot) {
+        LOG_WARNF("[PanicBoot] Smart Wait extended: max=%lums required=%lums",
+                  SMART_WAIT_MAX_MS, SMART_WAIT_REQUIRED_MS);
+    }
 
     auto runSmartWait = [&]() {
         LOG("Checking for CPAP SD card activity (Smart Wait)...");
@@ -502,6 +533,21 @@ void setup() {
     } else {
         LOG("[FSM] Scheduled mode — starting in IDLE");
         // IDLE is the correct initial state for scheduled mode
+    }
+
+    // We made it through bus-acquire, config-load, WiFi, and uploader init
+    // without crashing. Drop the panic-boot flag so any subsequent code paths
+    // that consult wasAbnormalReset() see normal operation.
+    CrashDiag::clearPanicBootFlag();
+
+    // Subscribe the main loop task to the IDF task watchdog. Until now the
+    // loop has been free to take arbitrarily long (smart-wait can sit for
+    // 10 min in panic-boot mode); from here on, loop must tick every
+    // MAIN_LOOP_WDT_SECONDS or the chip resets.
+    esp_err_t wdtAdd = esp_task_wdt_add(NULL);
+    if (wdtAdd != ESP_OK) {
+        LOG_WARNF("esp_task_wdt_add(loop) returned 0x%x — main-loop watchdog NOT active",
+                  (unsigned)wdtAdd);
     }
 
     LOG("Setup complete!");
@@ -1082,8 +1128,17 @@ void handleO2RingRetry() {
 // Loop Function
 // ============================================================================
 void loop() {
+    // Feed the main-loop task watchdog every iteration. If the loop ever
+    // stops ticking (wedge in any handler), the WDT will panic-reset after
+    // MAIN_LOOP_WDT_SECONDS and the next boot reads ESP_RST_TASK_WDT.
+    esp_task_wdt_reset();
+
+    // Heartbeat the persistent diagnostics so the NVS snapshot stays fresh
+    // even when no FSM transition has happened. Rate-limited internally.
+    CrashDiag::heartbeat((uint8_t)currentState);
+
     // ── Always-on tasks ──
-    
+
     // Periodic SD card log dump (every 10 seconds when enabled)
     // Skip when upload task is running — SD card is in use on another core
     if (config.getLogToSdCard() && !uploadTaskRunning) {
@@ -1266,6 +1321,42 @@ void loop() {
         }
         // If UPLOADING, leave flag set — handleReleasing() will redirect to MONITORING
         // after upload finishes current cycle + mandatory root/SETTINGS files
+    }
+
+    // ── Stale-state detector ──
+    // Active states (ones that should make rapid progress) must not exceed
+    // STALE_STATE_TIMEOUT_MS. The dedicated upload heartbeat (2 min) already
+    // catches a hung upload task; this is a backstop for the BLE/SD paths
+    // that don't have their own heartbeat. Force-release the bus and reboot
+    // if we sit too long. LISTENING/IDLE/COOLDOWN/MONITORING are deliberately
+    // excluded — they can legitimately stay parked for long periods.
+    const unsigned long STALE_STATE_TIMEOUT_MS = 40UL * 60UL * 1000UL;
+    bool stateIsActive = false;
+    switch (currentState) {
+        case UploadState::ACQUIRING:
+        case UploadState::UPLOADING:
+        case UploadState::RELEASING:
+        case UploadState::O2RING_SYNC:
+        case UploadState::O2RING_RETRY:
+        case UploadState::COMPLETE:
+            stateIsActive = true;
+            break;
+        default:
+            break;
+    }
+    if (stateIsActive && (millis() - stateEnteredAt > STALE_STATE_TIMEOUT_MS)) {
+        LOG_ERRORF("[FSM] Stale state: stuck in %s for >%lums — force-release + reboot",
+                   getStateName(currentState),
+                   STALE_STATE_TIMEOUT_MS);
+        if (sdManager.hasControl()) {
+            sdManager.releaseControl();
+        }
+        // Force MUX back to CPAP unconditionally — releaseControl is a no-op
+        // when espHasControl is false, but the bus may have been stolen by
+        // a wedged upload task without sdManager.espHasControl reflecting it.
+        digitalWrite(SD_SWITCH_PIN, SD_SWITCH_CPAP_VALUE);
+        delay(300);
+        esp_restart();
     }
 
     // ── FSM dispatch ──
